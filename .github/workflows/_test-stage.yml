@@ -1,0 +1,225 @@
+name: Test stage
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        type: string
+        required: true
+        description: "Container image including CI tooling"
+      test_requirements:
+        type: string
+        required: true
+        description: "Python packages required for testing"
+      tox_config_file:
+        type: string
+        required: true
+        description: "Tox Ansible configuration file"
+      automation_hub_url:
+        type: string
+        required: true
+        description: 'The API URL for the Automation Hub'
+      lint_profile:
+        type: string
+        required: false
+        description: "The ansible-lint profile applied"
+        default: ""
+      lint_config_file:
+        type: string
+        required: false
+        description: "File used to configure ansible-lint"
+        default: ""
+      lint_exclude:
+        type: string
+        required: false
+        description: "Paths to exclude from linting"
+        default: '["tests/integration/", "tests/unit"]'
+      lint_parseable:
+        type: boolean
+        required: false
+        description: "If the parsable option should be enabled for ansible-lint"
+        default: true
+      lint_force_color:
+        type: boolean
+        required: false
+        description: "If the force color option should be enabled for ansible-lint"
+        default: true
+      lint_offline:
+        type: boolean
+        required: false
+        description: "If the offline option should be enabled for ansible-lint"
+        default: false
+      lint_strict:
+        type: boolean
+        required: false
+        description: "Return non-zero exit code on warnings as well as errors. This should be set to true if uploading the collection to automation hub."
+        default: false
+      lint_sarif_file:
+        type: boolean
+        required: false
+        description: "If the sarif report should be generated for ansible-lint using default name ode-quality-report.sarif"
+        default: false
+    secrets:
+      automation_hub_token:
+        required: true
+        description: 'The Authentication Token for the Hub'
+
+jobs:
+  automation-hub-verify-ansible-lint:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download ansible collections
+      uses: actions/download-artifact@v4
+      with:
+        name: local-ansible-collections
+        path: .ansible
+
+    - name: Test | automation-hub-verify-ansible-lint (1/2)
+      id: automation-hub-verify-ansible-lint
+      env:
+        SARIF_REPORT_FULL_PATH: "./code-quality-report.sarif"
+      run: |
+        echo "Install pip requirements when test_requirements input is specified"
+        if [[ "${{ inputs.test_requirements }}" != "" ]]; then pip install -r ${{ inputs.test_requirements }}; fi
+
+        # Init variable for all the parameters
+        LINT_ARGS=""
+
+        # Add the ansible-lint profile
+        if [[ "${{ inputs.lint_profile }}" != "" ]]; then
+          LINT_ARGS+=" --profile ${{ inputs.lint_profile }}";
+        fi
+
+        # Add config file if provided
+        if [[ "${{ inputs.lint_config_file }}" != "" ]]; then
+          LINT_ARGS+=" --config-file ${{ inputs.lint_config_file }}";
+        fi
+
+        # Add the excludes if included
+        if [[ "${{ inputs.lint_exclude }}" != "" ]]; then
+          FLAG=" --exclude"
+          EXCLUDE_ARGS=$(echo '${{ inputs.lint_exclude }}' | tr -d '[],"')
+          set -- $EXCLUDE_ARGS
+          for item in "$@"; do
+            LINT_ARGS+=" $FLAG $item"
+          done
+        fi
+
+        # Add parsable flag if provided
+        if ${{ inputs.lint_parseable }} ; then
+          LINT_ARGS+=" --parseable";
+        fi
+
+        # Add force color flag
+        if ${{ inputs.lint_force_color }} ; then
+          LINT_ARGS+=" --force-color";
+        fi
+
+        # Set offline mode
+        if ${{ inputs.lint_offline }} ; then
+          LINT_ARGS+=" --offline";
+        fi
+
+        # Set strict mode
+        if ${{ inputs.lint_strict }} ; then
+          LINT_ARGS+=" --strict";
+        fi
+
+        # Set sarif report
+        if ${{ inputs.lint_sarif_file }} ; then
+          LINT_ARGS+=" --sarif-file ${SARIF_REPORT_FULL_PATH}";
+        fi
+
+        ansible-lint --version
+        echo "Running ansible-lint with the following parameters:"
+        echo "${LINT_ARGS}"
+        ansible-lint ${LINT_ARGS} || RETURN=$?
+        if true && ! [ -f ${SARIF_REPORT_FULL_PATH} ] ; then
+          echo "Code quality sarif report was requested but not generated, please check the logs."
+          RETURN=1${RETURN}
+        fi
+        if [[ 0 == $RETURN ]]; then
+          echo "Return code $RETURN matches expected return"
+          exit 0
+        fi
+        exit $RETURN
+
+    - name: Test | automation-hub-verify-ansible-lint (2/2)
+      uses: actions/upload-artifact@v4
+      if: always() && steps.automation-hub-verify-ansible-lint.outcome != 'skipped'
+      with:
+        name: automation-hub-verify-ansible-lint
+        path: code-quality-report.sarif
+        if-no-files-found: error
+
+  ansible-tox-sanity:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download ansible collections
+      uses: actions/download-artifact@v4
+      with:
+        name: local-ansible-collections
+        path: .ansible
+
+    - name: Test | ansible-tox-sanity
+      id: ansible-tox-sanity
+      run: |
+        echo "Install pip requirements when test_requirements input is specified"
+        if [[ "${{ inputs.test_requirements }}" != "" ]]; then pip install -r ${{ inputs.test_requirements }}; fi
+        export ANSIBLE_COLLECTIONS_PATH=./.ansible/collections
+        ansible-galaxy collection list
+        tox --verbose --listenvs-all
+        tox
+  ansible-tox-integration:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download ansible collections
+      uses: actions/download-artifact@v4
+      with:
+        name: local-ansible-collections
+        path: .ansible
+
+    - name: Test | ansible-tox-integration
+      id: ansible-tox-integration
+      env:
+          ANSIBLE_GALAXY_SERVER_LIST: automation_hub,upstream_galaxy
+          ANSIBLE_GALAXY_SERVER_UPSTREAM_GALAXY_URL: https://galaxy.ansible.com/
+          ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
+          ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
+      run: |
+        if [[ "$ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL" == *"console.redhat.com"* ]]; then
+            export ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
+        fi
+        echo "Install pip requirements when test_requirements input is specified"
+        if [[ "${{ inputs.test_requirements }}" != "" ]]; then pip install -r ${{ inputs.test_requirements }}; fi
+        export ANSIBLE_COLLECTIONS_PATH=./.ansible/collections
+        ansible-galaxy collection list
+        if [ -f ${{ inputs.tox_config_file }} ]
+        then
+          tox --ansible --conf ${{ inputs.tox_config_file }} list
+          tox --ansible --conf ${{ inputs.tox_config_file }}
+        else
+          echo "❌ Error: File not found ${{ inputs.tox_config_file }}"
+          exit 1
+        fi

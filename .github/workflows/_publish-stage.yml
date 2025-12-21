@@ -1,0 +1,72 @@
+name: Publish stage
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        type: string
+        required: true
+        description: "Container image including CI tooling"
+      publish_to_automation_hub:
+        type: boolean
+        required: true
+        description: 'Whether to publish the collection to the Automation Hub'
+      automation_hub_url:
+        type: string
+        required: true
+        description: 'The API URL for the Automation Hub'
+      tag_name:
+        type: string
+        required: true
+    secrets:
+      automation_hub_token:
+        required: true
+        description: 'The Authentication Token for the Hub'
+
+jobs:
+  package-publisher-github:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        fetch-tags: true # Explicitly ensures tags are pulled
+
+    - name: Publish | download-collection
+      uses: actions/download-artifact@v4
+      with:
+        name: build-asset
+
+    - name: Publish | package-publisher-github
+      id: package-publisher-github
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git config --global --add safe.directory .
+        semantic-release -v publish --tag ${{ inputs.tag_name }}
+
+  package-publisher-automation-hub:
+    if: ${{ inputs.publish_to_automation_hub }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Publish | download-collection
+      uses: actions/download-artifact@v4
+      with:
+        name: build-asset
+    - name: Publish | run-galaxy-importer
+      run: |
+        python3 -m galaxy_importer.main ./*.tar.gz
+    - name: Publish | package-publisher-automation-hub
+      id: package-publisher-automation-hub
+      env:
+        AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
+        AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
+      run: |
+        ansible-galaxy collection publish ./*.tar.gz \
+          --server "$AUTOMATION_HUB_URL" \
+          --token "$AUTOMATION_HUB_TOKEN"

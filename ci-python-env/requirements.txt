@@ -1,0 +1,7 @@
+ansible-core >= 2.16
+antsibull-changelog
+docsible
+galaxy-importer
+python-semantic-release >= 10.0.0
+sarif-tools
+tox

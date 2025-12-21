@@ -1,0 +1,6 @@
+name: "Secret-Detection"
+description: "Runs gitleaks secrets detection"
+
+runs:
+  using: "docker"
+  image: "Dockerfile"

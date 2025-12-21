@@ -1,0 +1,38 @@
+# ------------------------------------------------
+# GitHub Actions / act (Local Debugging)
+# ------------------------------------------------
+# The secrets file for 'act'. NEVER commit this!
+.secrets
+
+# If you map artifacts to a local folder during debugging
+# e.g., act --artifact-server-path ./artifacts
+artifacts/
+act-artifacts/
+.act-result/
+
+# ------------------------------------------------
+# Build & Dependencies
+# ------------------------------------------------
+
+# Python & Semantic Release
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Local environment variables for your app code
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
