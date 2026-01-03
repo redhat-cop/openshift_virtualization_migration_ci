@@ -3,6 +3,18 @@ name: CI for Ansible Collections
 on:
   workflow_call:
 
+concurrency:
+  # Group by the branch/ref name. 
+  # This ensures PRs don't block Main, and Main merges run one-by-one.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # For main branch, we set this to false to ensure releases finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+  # default: least privileged permissions across all jobs
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   setup-environment:
     uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_setup_environment.yml@0.1.0
