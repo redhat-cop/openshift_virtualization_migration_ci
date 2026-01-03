@@ -48,8 +48,8 @@ jobs:
         SARIF_REPORT_FULL_PATH: "./code-quality-report.sarif"
         LINT_ARGS: "--profile production"
       run: |
-        echo "Install requirements file when opt-pip-requirements input is specified"
-        if [[ "test-requirements.txt" != "" ]]; then pip install -r test-requirements.txt;
+        echo "Install pip requirements when opt-pip-requirements input is specified"
+        if [[ "test-requirements.txt" != "" ]]; then pip install -r test-requirements.txt; fi
         if [[ "["tests/integration/", "tests/unit"]" != "" ]]; then
           FLAG=" --exclude"
           EXCLUDE_ARGS=$(echo '["tests/integration/", "tests/unit"]' | tr -d '[],"')
@@ -106,8 +106,8 @@ jobs:
     - name: Test | ansible-tox-sanity
       id: ansible-tox-sanity
       run: |
-        echo "Install requirements file when opt-pip-requirements input is specified"
-        if [[ "test-requirements.txt" != "" ]]; then pip install -r test-requirements.txt;
+        echo "Install pip requirements when opt-pip-requirements input is specified"
+        if [[ "test-requirements.txt" != "" ]]; then pip install -r test-requirements.txt; fi
         export ANSIBLE_COLLECTIONS_PATH=./.ansible/collections
         COLLECTION_INSTALL_PATH=$( \
           ansible-galaxy collection install --force . | \
