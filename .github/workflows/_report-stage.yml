@@ -1,29 +1,47 @@
-name: Placeholder stage name
+name: Report stage
 
 on:
   workflow_call:
-    # inputs:
-    #   environment:
-    #     required: true
-    #     type: string
-    # secrets:
-    #   API_KEY:
-    #     required: true
+    inputs:
+      image:
+        required: true
+        type: string
 
 jobs:
-  job-ansible-codeclimate:
+  ansible-codeclimate:
     runs-on: ubuntu-latest
-    # environment: ${{ inputs.environment }}
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v4
 
-    - name: Run local action
-      id: custom-action1
-      uses: open-appdev-lab/ansible-collections-ci/.github/actions/dummy@beta
+    - name: Report | ansible-codeclimate (1/3)
+      uses: actions/download-artifact@v4
       with:
-        placeholder-input1: 'GitHub Actions'
+        name: automation-hub-verify-ansible-lint
 
-    - name: Print Output
-    #   env:
-    #     KEY: ${{ secrets.API_KEY }}
-      run: echo " The random number was ${{ steps.custom-action1.outputs.placeholder-output1 }}"
+    - name: Report | ansible-codeclimate (2/3)
+      id: ansible-codeclimate
+      env:
+        SARIF_REPORT_FULL_PATH: "./code-quality-report.sarif"
+      run: |
+        if [[ -f ${SARIF_REPORT_FULL_PATH} ]]
+        then
+          sarif codeclimate ${SARIF_REPORT_FULL_PATH} || RETURN=$?
+        else
+          echo "❌ Error: File not found ${SARIF_REPORT_FULL_PATH}"
+          exit 1
+        fi
+        if [[ 0 == $RETURN ]]; then echo "Return code $RETURN matches expected return"; exit 0; fi
+        exit $RETURN
+
+    - name: Report | ansible-codeclimate  (3/3)
+      uses: actions/upload-artifact@v4
+      if: always() && steps.ansible-codeclimate.outcome != 'skipped'
+      with:
+        name: ansible-codeclimate
+        path: code-quality-report.json
+        if-no-files-found: error

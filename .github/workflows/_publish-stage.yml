@@ -1,29 +1,65 @@
-name: Placeholder stage name
+name: Publish stage
 
 on:
   workflow_call:
-    # inputs:
-    #   environment:
-    #     required: true
-    #     type: string
-    # secrets:
-    #   API_KEY:
-    #     required: true
+    inputs:
+      image:
+        required: true
+        type: string
+      automation_hub_url:
+        required: false
+        type: string
+        default: 'https://console.redhat.com/api/automation-hub/'
+        description: 'The API URL for the Automation Hub'
+      tag_name:
+        required: true
+        type: string
+    secrets:
+      automation_hub_token:
+        required: true
+        description: 'The Authentication Token for the Hub'
 
 jobs:
-  job-gitlab-package-publisher:
+  package-publisher-github:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        fetch-tags: true # Explicitly ensures tags are pulled
+
+    - name: Publish | download-collection
+      uses: actions/download-artifact@v4
+      with:
+        name: build-asset
+
+    - name: Publish | package-publisher-github
+      id: package-publisher-github
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git config --global --add safe.directory .
+        semantic-release -vv publish --tag ${{ inputs.tag_name }}
+
+  package-publisher-automation-hub:
     runs-on: ubuntu-latest
     # environment: ${{ inputs.environment }}
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Run local action
-      id: custom-action1
-      uses: open-appdev-lab/ansible-collections-ci/.github/actions/dummy@beta
+    - name: Publish | download-collection
+      uses: actions/download-artifact@v4
       with:
-        placeholder-input1: 'GitHub Actions'
-
-    - name: Print Output
-    #   env:
-    #     KEY: ${{ secrets.API_KEY }}
-      run: echo " The random number was ${{ steps.custom-action1.outputs.placeholder-output1 }}"
+        name: build-asset
+    - name: Publish | package-publisher-automation-hub
+      id: package-publisher-automation-hub
+      env:
+        AUTOMATION_HUB_URL: ${{ vars.HUB_URL || 'https://console.redhat.com/api/automation-hub/' }}
+        AUTOMATION_HUB_TOKEN: ${{ secrets.AUTOMATION_HUB_TOKEN }}
+      run: |
+        ansible-galaxy collection publish ./*.tar.gz \
+          --server "$AUTOMATION_HUB_URL" \
+          --token "$AUTOMATION_HUB_TOKEN"

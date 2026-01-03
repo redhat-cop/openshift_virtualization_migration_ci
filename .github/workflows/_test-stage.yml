@@ -1,80 +1,151 @@
-name: Placeholder stage name
+name: Test stage
 
 on:
   workflow_call:
-    # inputs:
-    #   environment:
-    #     required: true
-    #     type: string
-    # secrets:
-    #   API_KEY:
-    #     required: true
+    inputs:
+      image:
+        required: true
+        type: string
 
 jobs:
-  secret_detection:
-    runs-on: ubuntu-latest
-    # environment: ${{ inputs.environment }}
-    steps:
-    - uses: actions/checkout@v4
+  # secret_detection:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - uses: actions/checkout@v4
+  #     with:
+  #         fetch-depth: 50  # Important: Gitleaks needs history to scan commits
+  #   - name: Test | secret_detection (1/2)
+  #     id: secret_detection
+  #     uses: ./.github/actions/secret-detection
+  #   - name: Test | secret_detection (2/2)
+  #     uses: actions/upload-artifact@v4
+  #     if: always() && steps.secret_detection.outcome != 'skipped'
+  #     with:
+  #       name: secret_detection
+  #       path: secret-detection-report.json
+  #       if-no-files-found: error
 
-    - name: Run local action
-      id: custom-action1
-      uses: open-appdev-lab/ansible-collections-ci/.github/actions/dummy@beta
-      with:
-        placeholder-input1: 'GitHub Actions'
-
-    - name: Print Output
-    #   env:
-    #     KEY: ${{ secrets.API_KEY }}
-      run: echo " The random number was ${{ steps.custom-action1.outputs.placeholder-output1 }}"
 
   automation-hub-verify-ansible-lint:
     runs-on: ubuntu-latest
-    # environment: ${{ inputs.environment }}
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v4
 
-    - name: Run local action
-      id: custom-action2
-      uses: open-appdev-lab/ansible-collections-ci/.github/actions/dummy@beta
+    - name: Download ansible collections
+      uses: actions/download-artifact@v4
       with:
-        placeholder-input1: 'GitHub Actions'
+        name: local-ansible-collections
+        path: .ansible
 
-    - name: Print Output
-    #   env:
-    #     KEY: ${{ secrets.API_KEY }}
-      run: echo " The random number was ${{ steps.custom-action1.outputs.placeholder-output1 }}"
+    - name: Test | automation-hub-verify-ansible-lint (1/2)
+      id: automation-hub-verify-ansible-lint
+      env:
+        SARIF_REPORT_FULL_PATH: "./code-quality-report.sarif"
+        LINT_ARGS: "--profile production"
+      run: |
+        if [[ "["tests/integration/", "tests/unit"]" != "" ]]; then
+          FLAG=" --exclude"
+          EXCLUDE_ARGS=$(echo '["tests/integration/", "tests/unit"]' | tr -d '[],"')
+          set -- $EXCLUDE_ARGS
+          for item in "$@"; do
+            LINT_ARGS+=" $FLAG $item"
+          done
+        fi
+        if true ; then LINT_ARGS+=" --parseable"; fi
+        if true ; then LINT_ARGS+=" --force-color"; fi
+        if false ; then LINT_ARGS+=" --offline"; fi
+        if true ; then LINT_ARGS+=" --strict"; fi
+        if true ; then LINT_ARGS+=" --sarif-file ${SARIF_REPORT_FULL_PATH}"; fi
+        ansible-lint --version
+        echo "Running ansible-lint with the following parameters"
+        echo "${LINT_ARGS}"
+        echo "Switch directories to project directory ."
+        cd .
+        ansible-lint ${LINT_ARGS} || RETURN=$?
+        if true && ! [ -f ${SARIF_REPORT_FULL_PATH} ] ; then
+          echo "Code quality sarif report was requested but not generated, please check the logs."
+          RETURN=1${RETURN}
+        fi
+        if [[ 0 == $RETURN ]]; then
+          echo "Return code $RETURN matches expected return"
+          exit 0
+        fi
+        exit $RETURN
 
-  job-ansible-tox-sanity:
+    - name: Test | automation-hub-verify-ansible-lint (2/2)
+      uses: actions/upload-artifact@v4
+      if: always() && steps.automation-hub-verify-ansible-lint.outcome != 'skipped'
+      with:
+        name: automation-hub-verify-ansible-lint
+        path: code-quality-report.sarif
+        if-no-files-found: error
+
+  ansible-tox-sanity:
     runs-on: ubuntu-latest
-    # environment: ${{ inputs.environment }}
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v4
 
-    - name: Run local action
-      id: custom-action3
-      uses: open-appdev-lab/ansible-collections-ci/.github/actions/dummy@beta
+    - name: Download ansible collections
+      uses: actions/download-artifact@v4
       with:
-        placeholder-input1: 'GitHub Actions'
+        name: local-ansible-collections
+        path: .ansible
 
-    - name: Print Output
-    #   env:
-    #     KEY: ${{ secrets.API_KEY }}
-      run: echo " The random number was ${{ steps.custom-action1.outputs.placeholder-output1 }}"
-
-  job-ansible-tox-integration:
+    - name: Test | ansible-tox-sanity
+      id: ansible-tox-sanity
+      run: |
+        export ANSIBLE_COLLECTIONS_PATH=./.ansible/collections
+        COLLECTION_INSTALL_PATH=$( \
+          ansible-galaxy collection install --force . | \
+          grep "Installing" | \
+          awk -F "'" '{ print $4 }' \
+        )
+        export COLLECTION_DIR=${COLLECTION_INSTALL_PATH}
+        ansible-galaxy collection list
+        tox --verbose --listenvs-all
+        tox
+  ansible-tox-integration:
     runs-on: ubuntu-latest
-    # environment: ${{ inputs.environment }}
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v4
 
-    - name: Run local action
-      id: custom-action4
-      uses: open-appdev-lab/ansible-collections-ci/.github/actions/dummy@beta
+    - name: Download ansible collections
+      uses: actions/download-artifact@v4
       with:
-        placeholder-input1: 'GitHub Actions'
+        name: local-ansible-collections
+        path: .ansible
 
-    - name: Print Output
-    #   env:
-    #     KEY: ${{ secrets.API_KEY }}
-      run: echo " The random number was ${{ steps.custom-action1.outputs.placeholder-output1 }}"
+    - name: Test | ansible-tox-integration
+      id: ansible-tox-integration
+      run: |
+        export ANSIBLE_COLLECTIONS_PATH=./.ansible/collections
+        COLLECTION_INSTALL_PATH=$( \
+          ansible-galaxy collection install --force . | \
+          grep "Installing" | \
+          awk -F "'" '{ print $4 }' \
+        )
+        export COLLECTION_DIR=${COLLECTION_INSTALL_PATH}
+        ansible-galaxy collection list
+        if [ -f tox-ansible.ini ]
+        then
+          tox --ansible --conf tox-ansible.ini list
+          tox --ansible --conf tox-ansible.ini
+        else
+          echo "❌ Error: File not found tox-ansible.ini"
+          exit 1
+        fi
