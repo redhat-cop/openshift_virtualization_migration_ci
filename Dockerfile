@@ -31,9 +31,7 @@ RUN \
     python3.12 -m pip install --upgrade pip
 
 COPY requirements-ci.txt .
-COPY test-requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements-ci.txt
-#RUN pip install --no-cache-dir -r test-requirements.txt
 
 # GitHub actions should run as root user
