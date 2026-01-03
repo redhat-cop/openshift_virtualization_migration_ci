@@ -137,6 +137,8 @@ jobs:
     - name: Test | ansible-tox-integration
       id: ansible-tox-integration
       run: |
+        echo "Install pip requirements when opt-pip-requirements input is specified"
+        if [[ "test-requirements.txt" != "" ]]; then pip install -r test-requirements.txt; fi
         export ANSIBLE_COLLECTIONS_PATH=./.ansible/collections
         COLLECTION_INSTALL_PATH=$( \
           ansible-galaxy collection install --force . | \
