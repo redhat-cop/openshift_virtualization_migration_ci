@@ -1,0 +1,59 @@
+name: CI for Ansible Collections
+
+on:
+  workflow_call:
+
+jobs:
+  setup-environment:
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_setup_environment.yml@0.1.0
+    permissions:
+      contents: read
+      packages: write # Required to push to GHCR
+
+  secrets:
+    needs: setup-environment
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_secrets-stage.yml@0.1.0
+
+  prepare:
+    needs: [ setup-environment, secrets ]
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_prepare-stage.yml@0.1.0
+    with:
+      image: ${{ needs.setup-environment.outputs.image_tag }}
+    secrets:
+      automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}
+
+  test:
+    needs: [ setup-environment, prepare ]
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_test-stage.yml@0.1.0
+    with:
+      image: ${{ needs.setup-environment.outputs.image_tag }}
+
+  report:
+    needs: [ setup-environment, test ]
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_report-stage.yml@0.1.0
+    with:
+      image: ${{ needs.setup-environment.outputs.image_tag }}
+
+  release:
+    permissions:
+      contents: write
+      packages: read
+    if: github.ref == 'refs/heads/main'
+    needs: [ setup-environment, report ]
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_release-stage.yml@0.1.0
+    with:
+      image: ${{ needs.setup-environment.outputs.image_tag }}
+      dry_run: ${{ github.event_name == 'pull_request' }}
+
+  publish:
+    permissions:
+      contents: write
+      packages: read
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release.outputs.released == 'true'
+    needs: [ setup-environment, release ]
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_publish-stage.yml@0.1.0
+    with:
+      image: ${{ needs.setup-environment.outputs.image_tag }}
+      tag_name: ${{ needs.release.outputs.new_version }}
+    secrets:
+      automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}
