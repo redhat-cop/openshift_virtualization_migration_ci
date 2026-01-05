@@ -1,6 +1,6 @@
 [project]
 name = "ci-python-env"
-version = "1.0.1"
+version = "1.0.2"
 description = "Container image with python environment for building and publishing Ansible collections"
 authors = [{name = "Lucas Norberto Burigo", email = "burigolucas@no.span"}]
 readme = "README.md"
