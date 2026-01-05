@@ -6,7 +6,7 @@ on:
       image:
         type: string
         required: false
-        default: 'ghcr.io/open-appdev-lab/ansible-collections-ci/ci-python-env/ci-python-env:v1.0.0'
+        default: 'ghcr.io/open-appdev-lab/ansible-collections-ci/ci-python-env:v1.0.0'
 
 concurrency:
   # Group by the branch/ref name. 
@@ -21,18 +21,6 @@ permissions:
   packages: read
 
 jobs:
-  # setup-environment:
-  #   runs-on: ubuntu-latest
-  #   outputs:
-  #     shared_ref: ${{ steps.parse.outputs.ref }}
-  #     image_tag: "ghcr.io/${{ github.repository }}/ci-python-env:${{ steps.parse.outputs.ref }}"
-  #   steps:
-  #     - id: parse
-  #       run: |
-  #         # Extracts the @tag or @branch from the workflow_ref
-  #         REF=$(echo "${{ github.workflow_ref }}" | awk -F '@' '{print $2}')
-  #         echo "ref=$REF" >> $GITHUB_OUTPUT
-
   secrets:
     uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_secrets-stage.yml@v1.0.10
 
