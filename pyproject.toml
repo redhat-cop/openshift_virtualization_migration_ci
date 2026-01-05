@@ -1,0 +1,24 @@
+[project]
+name = "ci-python-env"
+version = "0.0.0"
+description = "Container image with python environment for building and publishing Ansible collections"
+authors = [{name = "Lucas Norberto Burigo", email = "burigolucas@no.span"}]
+readme = "README.md"
+
+[tool.semantic_release]
+version_toml = [
+    "pyproject.toml:project.version"
+]
+build_command = false 
+commit_message = "chore(release): {version} [skip ci]"
+
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease_token = "rc"
+prerelease = false
+
+[tool.semantic_release.changelog]
+exclude_commit_patterns = [
+    "chore\\(release\\):",
+    "chore\\(deps\\):",
+]

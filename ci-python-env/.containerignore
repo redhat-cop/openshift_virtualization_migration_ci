@@ -1,0 +1,16 @@
+# Ignore git history and configuration
+.git
+.gitignore
+.github
+
+# Ignore Python/Semantic Release config (unless your app explicitly needs them)
+pyproject.toml
+changelog.md
+.venv
+venv
+__pycache__
+
+# Ignore IDE and OS files
+.vscode
+.idea
+.DS_Store

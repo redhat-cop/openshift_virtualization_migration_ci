@@ -1,0 +1,108 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry Run (Simulate release without pushing)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    concurrency: release
+    outputs:
+      released: ${{ steps.release.outputs.released }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Semantic Release v10
+        run: pip install "python-semantic-release>=10.0.0"
+
+      - name: Configure Git
+        # PSR requires a git user to make commits
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run Semantic Release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 1. Determine flags
+          NOOP_FLAG=""
+          if [ "${{ inputs.dry_run }}" == "true" ]; then
+            NOOP_FLAG="--noop"
+          fi
+
+          # 2. Run the release command
+          semantic-release -v version $NOOP_FLAG
+          
+          # 3. Capture outputs for the next job
+          NEW_VERSION=$(semantic-release version --print)
+          
+          if [ -z "$NEW_VERSION" ]; then
+             echo "No release scheduled."
+             echo "released=false" >> "$GITHUB_OUTPUT"
+          else
+             echo "Release scheduled: $NEW_VERSION"
+             echo "released=true" >> "$GITHUB_OUTPUT"
+             echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-push:
+    needs: release
+    if: needs.release.outputs.released == 'true' || inputs.dry_run == true
+    runs-on: ubuntu-latest
+    env:
+      WORK_DIR: "ci-python-env"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Downcase Repo Name
+        run: echo "REPO_LOWER=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
+      - name: Prepare ignore file
+        run: |
+          if [ -f "${{ env.WORK_DIR }}/.containerignore" ]; then
+            cp "${{ env.WORK_DIR }}/.containerignore" "${{ env.WORK_DIR }}/.dockerignore"
+            echo "✅ Activated .containerignore in ${{ env.WORK_DIR }}"
+          fi
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ env.WORK_DIR }}
+          file: ${{ env.WORK_DIR }}/Containerfile
+          push: ${{ inputs.dry_run != true }}
+          tags: |
+            ghcr.io/${{ env.REPO_LOWER }}:latest
+            ghcr.io/${{ env.REPO_LOWER }}:${{ needs.release.outputs.version }}
+            ghcr.io/${{ env.REPO_LOWER }}:v${{ needs.release.outputs.version }}
