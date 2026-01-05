@@ -36,42 +36,41 @@ jobs:
 
   secrets:
     needs: setup-environment
-    uses: ./.github/workflows/_secrets-stage.yml
     # uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_secrets-stage.yml@0.1.0
-    # runs-on: ubuntu-latest
-    # steps:
-    #   - name: Checkout Shared Repo
-    #     uses: actions/checkout@v4
-    #     with:
-    #       repository: open-appdev-lab/ansible-collections-ci
-    #       ref: ${{ needs.setup.outputs.shared_ref }}
-    #       path: .shared
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Shared Repo
+        uses: actions/checkout@v4
+        with:
+          repository: open-appdev-lab/ansible-collections-ci
+          ref: ${{ needs.setup-environment.outputs.shared_ref }}
+          path: .shared
 
-    #   - name: Run stage
-    #     uses: ./.shared/.github/workflows/_secrets-stage.yml
+      - name: Run stage
+        uses: ./.shared/.github/workflows/_secrets-stage.yml
 
-  # prepare:
-  #   needs: [ setup-environment, secrets ]
-  #   # uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_prepare-stage.yml@0.1.0
-  #   # with:
-  #   #   image: ${{ needs.setup-environment.outputs.image_tag }}
-  #   # secrets:
-  #   #   automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout Shared Repo
-  #       uses: actions/checkout@v4
-  #       with:
-  #         repository: open-appdev-lab/ansible-collections-ci
-  #         ref: ${{ needs.setup.outputs.shared_ref }}
-  #         path: .shared
+  prepare:
+    needs: [ setup-environment, secrets ]
+    # uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_prepare-stage.yml@0.1.0
+    # with:
+    #   image: ${{ needs.setup-environment.outputs.image_tag }}
+    # secrets:
+    #   automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Shared Repo
+        uses: actions/checkout@v4
+        with:
+          repository: open-appdev-lab/ansible-collections-ci
+          ref: ${{ needs.setup-environment.outputs.shared_ref }}
+          path: .shared
 
-  #     - name: Run stage
-  #       uses: ./.shared/.github/workflows/_prepare-stage.yml
-  #       with:
-  #         image: ${{ needs.setup-environment.outputs.image_tag }}
-  #       secrets:
-  #         automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}
+      - name: Run stage
+        uses: ./.shared/.github/workflows/_prepare-stage.yml
+        with:
+          image: ${{ needs.setup-environment.outputs.image_tag }}
+        secrets:
+          automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}
 
   # test:
   #   needs: [ setup-environment, prepare ]
