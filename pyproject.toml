@@ -11,6 +11,7 @@ version_toml = [
 ]
 build_command = "echo 'Skipping python build'"
 commit_message = "chore(release): {version} [skip ci]"
+major_on_zero = true
 
 [tool.semantic_release.branches.main]
 match = "main"
