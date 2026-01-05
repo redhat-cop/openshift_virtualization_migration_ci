@@ -6,7 +6,7 @@ on:
       image:
         type: string
         required: false
-        default: 'ghcr.io/open-appdev-lab/ansible-collections-ci/ci-python-env:v1.0.0'
+        default: 'ghcr.io/open-appdev-lab/ansible-collections-ci/ci-python-env:1.0.1'
 
 concurrency:
   # Group by the branch/ref name. 
