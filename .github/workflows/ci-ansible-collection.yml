@@ -4,8 +4,8 @@ on:
   workflow_call:
     inputs:
       image:
-        required: true
         type: string
+        required: false
         default: 'ghcr.io/open-appdev-lab/ansible-collections-ci/ci-python-env/ci-python-env:v1.0.0'
 
 concurrency:
