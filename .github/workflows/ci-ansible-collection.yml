@@ -7,6 +7,15 @@ on:
         type: string
         required: false
         default: 'ghcr.io/open-appdev-lab/ansible-collections-ci/ci-python-env:1.0.1'
+      automation_hub_url:
+        required: false
+        type: string
+        default: 'https://console.redhat.com/api/automation-hub/'
+        description: 'The API URL for the Automation Hub'
+    secrets:
+      automation_hub_token:
+        required: true
+        description: 'The Authentication Token for the Hub'
 
 concurrency:
   # Group by the branch/ref name. 
@@ -26,15 +35,16 @@ jobs:
 
   prepare:
     needs: secrets 
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_prepare-stage.yml@v1.0.8
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_prepare-stage.yml@v1.0.15
     with:
       image: ${{ inputs.image }}
+      automation_hub_url: ${{ inputs.automation_hub_url }}
     secrets:
       automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}
 
   test:
     needs: prepare
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_test-stage.yml@v1.0.8
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_test-stage.yml@v1.0.15
     with:
       image: ${{ inputs.image }}
 
@@ -58,12 +68,13 @@ jobs:
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release.outputs.released == 'true'
     needs: release
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_publish-stage.yml@v1.0.8
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_publish-stage.yml@v1.0.15
     permissions:
       contents: write
       packages: read
     with:
       image: ${{ inputs.image }}
       tag_name: ${{ needs.release.outputs.new_version }}
+      automation_hub_url: ${{ inputs.automation_hub_url }}
     secrets:
       automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}

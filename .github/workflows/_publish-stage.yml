@@ -7,9 +7,8 @@ on:
         required: true
         type: string
       automation_hub_url:
-        required: false
+        required: true
         type: string
-        default: 'https://console.redhat.com/api/automation-hub/'
         description: 'The API URL for the Automation Hub'
       tag_name:
         required: true
@@ -57,7 +56,7 @@ jobs:
     - name: Publish | package-publisher-automation-hub
       id: package-publisher-automation-hub
       env:
-        AUTOMATION_HUB_URL: ${{ vars.HUB_URL || 'https://console.redhat.com/api/automation-hub/' }}
+        AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
         AUTOMATION_HUB_TOKEN: ${{ secrets.AUTOMATION_HUB_TOKEN }}
       run: |
         ansible-galaxy collection publish ./*.tar.gz \

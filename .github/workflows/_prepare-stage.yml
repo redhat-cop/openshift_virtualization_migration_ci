@@ -4,18 +4,18 @@ on:
   workflow_call:
     inputs:
       image:
+        type: string
         required: true
-        type: string
       automation_hub_url:
-        required: false
         type: string
-        default: 'https://console.redhat.com/api/automation-hub/'
+        required: true
         description: 'The API URL for the Automation Hub'
         
     secrets:
       automation_hub_token:
         required: true
         description: 'The Authentication Token for the Hub'
+
 jobs:
   semver-next:
     runs-on: ubuntu-latest
@@ -50,10 +50,6 @@ jobs:
       env:
           AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
           AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
-          # Validate Automation Hub Certified Token"
-          # AUTOMATION_HUB_TOKEN: ${{ secrets.ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_CERTIFIED_TOKEN }}
-          # Validate Automation Hub Validated Token"
-          # AUTOMATION_HUB_TOKEN: ${{ secrets.ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_VALIDATED_TOKEN }}
       run: |
 
         echo "Starting Token Validation..."
@@ -118,7 +114,16 @@ jobs:
 
     - name: Prepare | ansible-collection-install (1/2)
       id: ansible-collection-install
+      env:
+          ANSIBLE_GALAXY_SERVER_LIST: automation_hub,upstream_galaxy
+          ANSIBLE_GALAXY_SERVER_UPSTREAM_GALAXY_URL: https://galaxy.ansible.com/
+          ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
+          ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
+          # ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL: https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
       run: |
+        if [[ "$ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL" == *"console.redhat.com"* ]]; then
+            export ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
+        fi
         ANSIBLE_COLLECTIONS_PATH=.ansible/collections
         ansible-galaxy collection install --force -p .ansible/collections -r requirements-dev.yml || RETURN=$?
         if [[ 0 == $RETURN ]]; then
