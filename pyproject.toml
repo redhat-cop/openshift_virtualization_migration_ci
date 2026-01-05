@@ -9,7 +9,7 @@ readme = "README.md"
 version_toml = [
     "pyproject.toml:project.version"
 ]
-build_command = false 
+build_command = "echo 'Skipping python build'"
 commit_message = "chore(release): {version} [skip ci]"
 
 [tool.semantic_release.branches.main]
