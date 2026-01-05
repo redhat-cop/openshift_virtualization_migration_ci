@@ -16,56 +16,95 @@ permissions:
   packages: read
 
 jobs:
+  # setup-environment:
+  #   uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_setup_environment.yml@0.1.0
+  #   permissions:
+  #     contents: read
+  #     packages: write # Required to push to GHCR
+
   setup-environment:
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_setup_environment.yml@0.1.0
-    permissions:
-      contents: read
-      packages: write # Required to push to GHCR
+    runs-on: ubuntu-latest
+    outputs:
+      shared_ref: ${{ steps.parse.outputs.ref }}
+      image_tag: "ghcr.io/${{ github.repository }}/ci-python-env:${{ steps.parse.outputs.ref }}"
+    steps:
+      - id: parse
+        run: |
+          # Extracts the @tag or @branch from the workflow_ref
+          REF=$(echo "${{ github.workflow_ref }}" | awk -F '@' '{print $2}')
+          echo "ref=$REF" >> $GITHUB_OUTPUT
 
   secrets:
     needs: setup-environment
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_secrets-stage.yml@0.1.0
+    uses: ./.github/workflows/_secrets-stage.yml
+    # uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_secrets-stage.yml@0.1.0
+    # runs-on: ubuntu-latest
+    # steps:
+    #   - name: Checkout Shared Repo
+    #     uses: actions/checkout@v4
+    #     with:
+    #       repository: open-appdev-lab/ansible-collections-ci
+    #       ref: ${{ needs.setup.outputs.shared_ref }}
+    #       path: .shared
 
-  prepare:
-    needs: [ setup-environment, secrets ]
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_prepare-stage.yml@0.1.0
-    with:
-      image: ${{ needs.setup-environment.outputs.image_tag }}
-    secrets:
-      automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}
+    #   - name: Run stage
+    #     uses: ./.shared/.github/workflows/_secrets-stage.yml
 
-  test:
-    needs: [ setup-environment, prepare ]
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_test-stage.yml@0.1.0
-    with:
-      image: ${{ needs.setup-environment.outputs.image_tag }}
+  # prepare:
+  #   needs: [ setup-environment, secrets ]
+  #   # uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_prepare-stage.yml@0.1.0
+  #   # with:
+  #   #   image: ${{ needs.setup-environment.outputs.image_tag }}
+  #   # secrets:
+  #   #   automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout Shared Repo
+  #       uses: actions/checkout@v4
+  #       with:
+  #         repository: open-appdev-lab/ansible-collections-ci
+  #         ref: ${{ needs.setup.outputs.shared_ref }}
+  #         path: .shared
 
-  report:
-    needs: [ setup-environment, test ]
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_report-stage.yml@0.1.0
-    with:
-      image: ${{ needs.setup-environment.outputs.image_tag }}
+  #     - name: Run stage
+  #       uses: ./.shared/.github/workflows/_prepare-stage.yml
+  #       with:
+  #         image: ${{ needs.setup-environment.outputs.image_tag }}
+  #       secrets:
+  #         automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}
 
-  release:
-    permissions:
-      contents: write
-      packages: read
-    if: github.ref == 'refs/heads/main'
-    needs: [ setup-environment, report ]
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_release-stage.yml@0.1.0
-    with:
-      image: ${{ needs.setup-environment.outputs.image_tag }}
-      dry_run: ${{ github.event_name == 'pull_request' }}
+  # test:
+  #   needs: [ setup-environment, prepare ]
+  #   uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_test-stage.yml@0.1.0
+  #   with:
+  #     image: ${{ needs.setup-environment.outputs.image_tag }}
 
-  publish:
-    permissions:
-      contents: write
-      packages: read
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release.outputs.released == 'true'
-    needs: [ setup-environment, release ]
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_publish-stage.yml@0.1.0
-    with:
-      image: ${{ needs.setup-environment.outputs.image_tag }}
-      tag_name: ${{ needs.release.outputs.new_version }}
-    secrets:
-      automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}
+  # report:
+  #   needs: [ setup-environment, test ]
+  #   uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_report-stage.yml@0.1.0
+  #   with:
+  #     image: ${{ needs.setup-environment.outputs.image_tag }}
+
+  # release:
+  #   permissions:
+  #     contents: write
+  #     packages: read
+  #   if: github.ref == 'refs/heads/main'
+  #   needs: [ setup-environment, report ]
+  #   uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_release-stage.yml@0.1.0
+  #   with:
+  #     image: ${{ needs.setup-environment.outputs.image_tag }}
+  #     dry_run: ${{ github.event_name == 'pull_request' }}
+
+  # publish:
+  #   permissions:
+  #     contents: write
+  #     packages: read
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release.outputs.released == 'true'
+  #   needs: [ setup-environment, release ]
+  #   uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_publish-stage.yml@0.1.0
+  #   with:
+  #     image: ${{ needs.setup-environment.outputs.image_tag }}
+  #     tag_name: ${{ needs.release.outputs.new_version }}
+  #   secrets:
+  #     automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}
