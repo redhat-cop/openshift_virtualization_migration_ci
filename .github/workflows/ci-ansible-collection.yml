@@ -30,7 +30,7 @@ jobs:
 
   secrets:
     needs: setup-environment
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_secrets-stage.yml@v1.0.9
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_secrets-stage.yml@v1.0.10
 
   prepare:
     needs: [ setup-environment, secrets ]
