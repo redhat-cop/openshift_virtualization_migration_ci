@@ -74,10 +74,13 @@ jobs:
     if: needs.release.outputs.released == 'true' || inputs.dry_run == true
     runs-on: ubuntu-latest
     env:
-      WORK_DIR: "ci-python-env"
+      WORK_DIR: "ci-python-env" # used also to define the container image name
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -86,8 +89,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Downcase Repo Name
-        run: echo "REPO_LOWER=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+      - name: Extract container image metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ env.WORK_DIR }}
+          tags: type=sha,format=long
 
       - name: Prepare ignore file
         run: |
@@ -102,7 +109,10 @@ jobs:
           context: ${{ env.WORK_DIR }}
           file: ${{ env.WORK_DIR }}/Containerfile
           push: ${{ inputs.dry_run != true }}
+          # Speed up subsequent builds by caching layers in GHCR
+          cache-from: type=gha 
+          cache-to: type=gha,mode=max
           tags: |
-            ghcr.io/${{ env.REPO_LOWER }}:latest
-            ghcr.io/${{ env.REPO_LOWER }}:${{ needs.release.outputs.version }}
-            ghcr.io/${{ env.REPO_LOWER }}:v${{ needs.release.outputs.version }}
+            ${{ steps.meta.outputs.tags }}
+            ghcr.io/${{ github.repository }}/${{ env.WORK_DIR }}:${{ needs.release.outputs.version }}
+            ghcr.io/${{ github.repository }}/${{ env.WORK_DIR }}:latest
