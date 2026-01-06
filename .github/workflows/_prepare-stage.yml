@@ -122,7 +122,6 @@ jobs:
           ANSIBLE_GALAXY_SERVER_UPSTREAM_GALAXY_URL: https://galaxy.ansible.com/
           ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
           ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
-          # ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL: https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
       run: |
         if [[ "$ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL" == *"console.redhat.com"* ]]; then
             export ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token

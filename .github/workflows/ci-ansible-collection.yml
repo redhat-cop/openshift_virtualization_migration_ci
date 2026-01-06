@@ -6,7 +6,7 @@ on:
       image:
         type: string
         required: false
-        default: 'ghcr.io/open-appdev-lab/ansible-collections-ci/ci-python-env:1.0.1'
+        default: 'ghcr.io/open-appdev-lab/ansible-collections-ci/ci-python-env:latest'
       test_requirements:
         type: string
         required: false
@@ -43,11 +43,11 @@ permissions:
 
 jobs:
   secrets:
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_secrets-stage.yml@v1.0.10
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_secrets-stage.yml@main
 
   prepare:
     needs: secrets 
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_prepare-stage.yml@v1.0.17
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_prepare-stage.yml@main
     with:
       image: ${{ inputs.image }}
       ansible_requirements: ${{ inputs.ansible_requirements }}
@@ -57,7 +57,7 @@ jobs:
 
   test:
     needs: prepare
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_test-stage.yml@v1.0.17
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_test-stage.yml@main
     with:
       image: ${{ inputs.image }}
       test_requirements: ${{ inputs.test_requirements}}
@@ -67,14 +67,14 @@ jobs:
 
   report:
     needs: test
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_report-stage.yml@v1.0.8
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_report-stage.yml@main
     with:
       image: ${{ inputs.image }}
 
   release:
     if: github.ref == 'refs/heads/main'
     needs: report
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_release-stage.yml@v1.0.8
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_release-stage.yml@main
     permissions:
       contents: write
       packages: read
@@ -85,7 +85,7 @@ jobs:
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release.outputs.released == 'true'
     needs: release
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_publish-stage.yml@v1.0.17
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_publish-stage.yml@main
     permissions:
       contents: write
       packages: read

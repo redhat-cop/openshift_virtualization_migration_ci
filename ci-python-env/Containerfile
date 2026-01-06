@@ -30,8 +30,8 @@ RUN \
     python3.12 -m venv ${APP_ROOT} && \
     python3.12 -m pip install --upgrade pip
 
-COPY requirements-ci.txt .
+COPY requirements.txt .
 
-RUN pip install --no-cache-dir -r requirements-ci.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # GitHub actions should run as root user

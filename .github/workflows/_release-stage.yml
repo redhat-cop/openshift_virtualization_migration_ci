@@ -62,7 +62,7 @@ jobs:
     - name: Release | upload-build-asset
       id: upload-build-asset
       uses: actions/upload-artifact@v4
-      if: always() && steps.semantic_release.outcome != 'skipped'
+      if: always() && steps.semantic_release.outcome != 'skipped' && steps.set-output.outputs.released
       with:
         name: build-asset
         path: "*.tar.gz"

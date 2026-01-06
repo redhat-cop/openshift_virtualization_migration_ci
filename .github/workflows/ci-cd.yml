@@ -94,7 +94,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}/${{ env.WORK_DIR }}
-          tags: type=sha,format=long
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
 
       - name: Prepare ignore file
         run: |
@@ -112,7 +114,4 @@ jobs:
           # Speed up subsequent builds by caching layers in GHCR
           cache-from: type=gha 
           cache-to: type=gha,mode=max
-          tags: |
-            ${{ steps.meta.outputs.tags }}
-            ghcr.io/${{ github.repository }}/${{ env.WORK_DIR }}:${{ needs.release.outputs.version }}
-            ghcr.io/${{ github.repository }}/${{ env.WORK_DIR }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
