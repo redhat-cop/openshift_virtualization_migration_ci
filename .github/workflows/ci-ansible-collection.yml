@@ -20,6 +20,10 @@ on:
         type: string
         default: 'https://console.redhat.com/api/automation-hub/'
         description: 'The API URL for the Automation Hub'
+      dry_run:
+        description: "Dry Run (Simulate release without pushing)"
+        type: boolean
+        default: true
     secrets:
       automation_hub_token:
         required: true
@@ -57,6 +61,7 @@ jobs:
     with:
       image: ${{ inputs.image }}
       test_requirements: ${{ inputs.test_requirements}}
+      automation_hub_url: ${{ inputs.automation_hub_url }}
 
   report:
     needs: test
