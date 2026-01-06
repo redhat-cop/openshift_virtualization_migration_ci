@@ -6,6 +6,9 @@ on:
       image:
         type: string
         required: true
+      ansible_requirements:
+        type: string
+        required: true
       automation_hub_url:
         type: string
         required: true
@@ -125,7 +128,8 @@ jobs:
             export ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
         fi
         ANSIBLE_COLLECTIONS_PATH=.ansible/collections
-        ansible-galaxy collection install --force -p .ansible/collections -r requirements-dev.yml || RETURN=$?
+        echo "Install collection dependencies"
+        ansible-galaxy collection install --force -p .ansible/collections -r ${{ inputs.ansible_requirements }} || RETURN=$?
         if [[ 0 == $RETURN ]]; then
           echo "Return code $RETURN matches expected return"
           exit 0

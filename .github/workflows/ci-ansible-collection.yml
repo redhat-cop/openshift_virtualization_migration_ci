@@ -7,6 +7,14 @@ on:
         type: string
         required: false
         default: 'ghcr.io/open-appdev-lab/ansible-collections-ci/ci-python-env:1.0.1'
+      test_requirements:
+        type: string
+        required: false
+        default: "test-requirements.txt"
+      ansible_requirements:
+        type: string
+        required: false
+        default: "requirements-dev.yml"
       automation_hub_url:
         required: false
         type: string
@@ -35,18 +43,20 @@ jobs:
 
   prepare:
     needs: secrets 
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_prepare-stage.yml@v1.0.15
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_prepare-stage.yml@v1.0.16
     with:
       image: ${{ inputs.image }}
+      ansible_requirements: ${{ inputs.ansible_requirements }}
       automation_hub_url: ${{ inputs.automation_hub_url }}
     secrets:
       automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}
 
   test:
     needs: prepare
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_test-stage.yml@v1.0.15
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_test-stage.yml@v1.0.16
     with:
       image: ${{ inputs.image }}
+      test_requirements: ${{ inputs.test_requirements}}
 
   report:
     needs: test

@@ -4,8 +4,20 @@ on:
   workflow_call:
     inputs:
       image:
-        required: true
         type: string
+        required: true
+      test_requirements:
+        type: string
+        required: true
+      automation_hub_url:
+        type: string
+        required: true
+        description: 'The API URL for the Automation Hub'
+        
+    secrets:
+      automation_hub_token:
+        required: true
+        description: 'The Authentication Token for the Hub'
 
 jobs:
   # secret_detection:
@@ -48,8 +60,8 @@ jobs:
         SARIF_REPORT_FULL_PATH: "./code-quality-report.sarif"
         LINT_ARGS: "--profile production"
       run: |
-        echo "Install pip requirements when opt-pip-requirements input is specified"
-        if [[ "test-requirements.txt" != "" ]]; then pip install -r test-requirements.txt; fi
+        echo "Install pip requirements when test_requirements input is specified"
+        if [[ "${{ inputs.test_requirements }}" != "" ]]; then pip install -r ${{ inputs.test_requirements }}; fi
         if [[ "["tests/integration/", "tests/unit"]" != "" ]]; then
           FLAG=" --exclude"
           EXCLUDE_ARGS=$(echo '["tests/integration/", "tests/unit"]' | tr -d '[],"')
@@ -106,8 +118,8 @@ jobs:
     - name: Test | ansible-tox-sanity
       id: ansible-tox-sanity
       run: |
-        echo "Install pip requirements when opt-pip-requirements input is specified"
-        if [[ "test-requirements.txt" != "" ]]; then pip install -r test-requirements.txt; fi
+        echo "Install pip requirements when test_requirements input is specified"
+        if [[ "${{ inputs.test_requirements }}" != "" ]]; then pip install -r ${{ inputs.test_requirements }}; fi
         export ANSIBLE_COLLECTIONS_PATH=./.ansible/collections
         #COLLECTION_INSTALL_PATH=$( \
         #  ansible-galaxy collection install --force . | \
@@ -136,9 +148,17 @@ jobs:
 
     - name: Test | ansible-tox-integration
       id: ansible-tox-integration
+      env:
+          ANSIBLE_GALAXY_SERVER_LIST: automation_hub,upstream_galaxy
+          ANSIBLE_GALAXY_SERVER_UPSTREAM_GALAXY_URL: https://galaxy.ansible.com/
+          ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
+          ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
       run: |
-        echo "Install pip requirements when opt-pip-requirements input is specified"
-        if [[ "test-requirements.txt" != "" ]]; then pip install -r test-requirements.txt; fi
+        if [[ "$ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL" == *"console.redhat.com"* ]]; then
+            export ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
+        fi
+        echo "Install pip requirements when test_requirements input is specified"
+        if [[ "${{ inputs.test_requirements }}" != "" ]]; then pip install -r ${{ inputs.test_requirements }}; fi
         export ANSIBLE_COLLECTIONS_PATH=./.ansible/collections
         #COLLECTION_INSTALL_PATH=$( \
         #  ansible-galaxy collection install --force . | \
