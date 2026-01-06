@@ -20,14 +20,14 @@ on:
         type: string
         default: 'https://console.redhat.com/api/automation-hub/'
         description: 'The API URL for the Automation Hub'
-      dry_run:
-        description: "Dry Run (Simulate release without pushing)"
-        type: boolean
-        default: true
+      # dry_run:
+      #   description: "Dry Run (Simulate release without pushing)"
+      #   type: boolean
+      #   default: true
     secrets:
       automation_hub_token:
         required: true
-        description: 'The Authentication Token for the Hub'
+        description: 'The Authentication Token for the Automation Hub'
 
 concurrency:
   # Group by the branch/ref name. 
@@ -47,7 +47,7 @@ jobs:
 
   prepare:
     needs: secrets 
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_prepare-stage.yml@v1.0.16
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_prepare-stage.yml@v1.0.17
     with:
       image: ${{ inputs.image }}
       ansible_requirements: ${{ inputs.ansible_requirements }}
@@ -57,11 +57,13 @@ jobs:
 
   test:
     needs: prepare
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_test-stage.yml@v1.0.16
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_test-stage.yml@v1.0.17
     with:
       image: ${{ inputs.image }}
       test_requirements: ${{ inputs.test_requirements}}
       automation_hub_url: ${{ inputs.automation_hub_url }}
+    secrets:
+      automation_hub_token: ${{ secrets.AUTOMATION_HUB_TOKEN }}
 
   report:
     needs: test
@@ -83,7 +85,7 @@ jobs:
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release.outputs.released == 'true'
     needs: release
-    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_publish-stage.yml@v1.0.15
+    uses: open-appdev-lab/ansible-collections-ci/.github/workflows/_publish-stage.yml@v1.0.17
     permissions:
       contents: write
       packages: read
