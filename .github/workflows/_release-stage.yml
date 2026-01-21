@@ -9,7 +9,7 @@ on:
         description: "Container image including CI tooling"
       dry_run:
         type: boolean
-        default: false
+        default: true
     outputs:
       new_version:
         description: "The version number generated"

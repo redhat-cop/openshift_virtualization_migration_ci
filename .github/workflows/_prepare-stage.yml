@@ -7,10 +7,6 @@ on:
         type: string
         required: true
         description: "Container image including CI tooling"
-      ansible_requirements:
-        type: string
-        required: true
-        description: "Ansible collections dependencies"
       automation_hub_url:
         type: string
         required: true
@@ -20,51 +16,8 @@ on:
       automation_hub_token:
         required: true
         description: 'The Authentication Token for the Hub'
-    outputs:
-      next_version:
-        description: "The version number generated"
-        value: ${{ jobs.semver-next.outputs.next_version }}
 
 jobs:
-  semver-next:
-    runs-on: ubuntu-latest
-    container:
-      image: ${{ inputs.image }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    outputs:
-      next_version: ${{ steps.semver-next.outputs.next_version }}
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    # ONLY needed for PRs to fix the Detached HEAD error for python-semantic release
-    - name: Attach to Branch (Fix Detached HEAD)
-      if: github.event_name == 'pull_request'
-      run: |
-        git config --global --add safe.directory .
-        git checkout -B ${{ github.head_ref }}
-    - name: Prepare | semver-next
-      id: semver-next
-      run: |
-        git config --global --add safe.directory .
-
-        LAST_VERSION=$(semantic-release version --print-last-released)
-        NEXT_VERSION=$(semantic-release version --print)
-
-        echo "LAST_VERSION=$LAST_VERSION" >> $GITHUB_ENV
-        echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_ENV
-
-        if [ "$LAST_VERSION" != "$NEXT_VERSION" ]; then
-          echo "🚀 A new version will be created: $NEXT_VERSION"
-          echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
-        else
-          echo "💤 No release needed. Version remains: $LAST_VERSION"
-        fi
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   ansible-validate-tokens:
     runs-on: ubuntu-latest
     container:
@@ -131,42 +84,3 @@ jobs:
                 exit 1
             fi
         fi
-
-  ansible-collection-install:
-    runs-on: ubuntu-latest
-    container:
-      image: ${{ inputs.image }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Prepare | ansible-collection-install (1/2)
-      id: ansible-collection-install
-      env:
-          ANSIBLE_GALAXY_SERVER_LIST: automation_hub,upstream_galaxy
-          ANSIBLE_GALAXY_SERVER_UPSTREAM_GALAXY_URL: https://galaxy.ansible.com/
-          ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
-          ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
-      run: |
-        if [[ "$ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL" == *"console.redhat.com"* ]]; then
-            export ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
-        fi
-        ANSIBLE_COLLECTIONS_PATH=.ansible/collections
-        echo "Install collection dependencies"
-        ansible-galaxy collection install --force -p .ansible/collections -r ${{ inputs.ansible_requirements }} || RETURN=$?
-        if [[ 0 == $RETURN ]]; then
-          echo "Return code $RETURN matches expected return"
-          exit 0
-        fi
-        exit $RETURN
-
-    - name: Prepare | ansible-collection-install (2/2)
-      uses: actions/upload-artifact@v4
-      if: always() && steps.ansible-collection-install.outcome != 'skipped'
-      with:
-        name: local-ansible-collections
-        path: .ansible/
-        if-no-files-found: error
-        include-hidden-files: true

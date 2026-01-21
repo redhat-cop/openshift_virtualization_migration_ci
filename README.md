@@ -23,6 +23,8 @@ The workflow execution is gated by stages:
 | Name | Type | Default | Description |
 | --- | --- | --- | --- |
 | `target_branch` | `string` | `main` | The branch that triggers release and publish logic. |
+| `ref` | `string` | None | The reference used on checkout code. |
+| `repo` | `string` | None | The repository used on checkout code. |
 | `image` | `string` | `ghcr.io/redhat-cop/openshift_virtualization_migration_ci/ci-python-env:latest` | Container image containing CI tooling. |
 | `test_requirements` | `string` | `test-requirements.txt` | Path to Python packages required for testing. |
 | `ansible_requirements` | `string` | `requirements-dev.yml` | Path to Ansible collection dependencies. |
@@ -68,6 +70,8 @@ jobs:
       packages: read
     with:
       target_branch: 'main'
+      ref: ${{ github.sha }}
+      repo: ${{ github.repository }}
       ansible_requirements: "requirements-dev.yml"
       test_requirements: "test-requirements.txt"
       tox_config_file: "tox-ansible.ini"

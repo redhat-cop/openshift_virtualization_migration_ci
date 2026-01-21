@@ -8,6 +8,14 @@ on:
         required: false
         default: "main"
         description: "The primary branch used for releases (e.g., main or master)"
+      ref:
+        type: string
+        required: true
+        description: "Reference used on checkout code"
+      repo:
+        type: string
+        required: true
+        description: "Repository used on checkout code"
       image:
         type: string
         required: false
@@ -43,13 +51,6 @@ on:
         required: true
         description: 'The Authentication Token for the Automation Hub'
 
-concurrency:
-  # Group by the branch/ref name. 
-  # This ensures PRs don't block Main, and Main merges run one-by-one.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_branch }}
-  # For main branch, we set this to false to ensure releases finish.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 # default: least privileged permissions across all jobs
 permissions:
   contents: read
@@ -58,13 +59,15 @@ permissions:
 jobs:
   secrets:
     uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_secrets-stage.yml@main
+    with:
+      ref: ${{ inputs.ref }}
+      repo: ${{ inputs.repo }}
 
   prepare:
     needs: secrets 
     uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_prepare-stage.yml@main
     with:
       image: ${{ inputs.image }}
-      ansible_requirements: ${{ inputs.ansible_requirements }}
       automation_hub_url: ${{ inputs.automation_hub_url }}
     secrets:
       automation_hub_token: ${{ secrets.automation_hub_token }}
@@ -73,8 +76,11 @@ jobs:
     needs: prepare
     uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_test-stage.yml@main
     with:
+      ref: ${{ inputs.ref }}
+      repo: ${{ inputs.repo }}
       image: ${{ inputs.image }}
       test_requirements: ${{ inputs.test_requirements}}
+      ansible_requirements: ${{ inputs.ansible_requirements }}
       tox_config_file: ${{ inputs.tox_config_file }}
       automation_hub_url: ${{ inputs.automation_hub_url }}
       lint_profile: "production"
@@ -91,7 +97,8 @@ jobs:
 
   release:
     if: |
-      github.ref == format('refs/heads/{0}', inputs.target_branch) || 
+      (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', inputs.target_branch)) ||
+      (github.event_name == 'push' && github.ref == format('refs/heads/{0}', inputs.target_branch)) ||
       (github.event_name == 'pull_request' && github.base_ref == inputs.target_branch)
     needs: report
     uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_release-stage.yml@main
@@ -100,7 +107,7 @@ jobs:
       packages: read
     with:
       image: ${{ inputs.image }}
-      dry_run: ${{ github.event_name == 'pull_request' }}
+      dry_run: ${{ github.event_name != 'push' }}
 
   publish:
     if: |

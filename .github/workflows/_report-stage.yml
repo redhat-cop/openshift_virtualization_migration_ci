@@ -22,7 +22,7 @@ jobs:
     - name: Report | ansible-codeclimate (1/3)
       uses: actions/download-artifact@v4
       with:
-        name: automation-hub-verify-ansible-lint
+        name: ansible-lint
 
     - name: Report | ansible-codeclimate (2/3)
       id: ansible-codeclimate

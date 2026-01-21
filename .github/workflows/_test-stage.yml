@@ -3,10 +3,26 @@ name: Test stage
 on:
   workflow_call:
     inputs:
+      ref:
+        type: string
+        required: true
+        description: "Reference used on checkout code"
+      repo:
+        type: string
+        required: true
+        description: "Repository used on checkout code"
       image:
         type: string
         required: true
         description: "Container image including CI tooling"
+      automation_hub_url:
+        type: string
+        required: true
+        description: 'The API URL for the Automation Hub'
+      ansible_requirements:
+        type: string
+        required: true
+        description: "Ansible collections dependencies"
       test_requirements:
         type: string
         required: true
@@ -15,10 +31,6 @@ on:
         type: string
         required: true
         description: "Tox Ansible configuration file"
-      automation_hub_url:
-        type: string
-        required: true
-        description: 'The API URL for the Automation Hub'
       lint_profile:
         type: string
         required: false
@@ -65,7 +77,7 @@ on:
         description: 'The Authentication Token for the Hub'
 
 jobs:
-  automation-hub-verify-ansible-lint:
+  ansible-lint:
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.image }}
@@ -74,24 +86,33 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v4
-
-    - name: Download ansible collections
-      uses: actions/download-artifact@v4
       with:
-        name: local-ansible-collections
-        path: .ansible
-
-    - name: Test | automation-hub-verify-ansible-lint (1/2)
-      id: automation-hub-verify-ansible-lint
+        ref: ${{ inputs.ref }}
+        repository: ${{ inputs.repo }}
+    - name: Install python dependencies
       env:
-        SARIF_REPORT_FULL_PATH: "./code-quality-report.sarif"
+        TEST_REQUIREMENTS: "${{ inputs.test_requirements }}"
       run: |
         echo "Install pip requirements when test_requirements input is specified"
-        if [[ "${{ inputs.test_requirements }}" != "" ]]; then pip install -r ${{ inputs.test_requirements }}; fi
-
-        # Init variable for all the parameters
-        LINT_ARGS=""
-
+        if [[ "$TEST_REQUIREMENTS" != "" ]]; then pip install -r $TEST_REQUIREMENTS; fi
+    - name: Install collections
+      env:
+        ANSIBLE_GALAXY_SERVER_LIST: automation_hub,upstream_galaxy
+        ANSIBLE_GALAXY_SERVER_UPSTREAM_GALAXY_URL: https://galaxy.ansible.com/
+        ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
+        ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
+        ANSIBLE_REQUIREMENTS: "${{ inputs.ansible_requirements }}"
+      run: |
+        if [[ "$ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL" == *"console.redhat.com"* ]]; then
+          export ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
+        fi
+        ansible-galaxy collection install --force -r $ANSIBLE_REQUIREMENTS
+    - name: Run ansible-lint
+      id: ansible-lint
+      env:
+        SARIF_REPORT_FULL_PATH: "./code-quality-report.sarif"
+        LINT_ARGS: ""
+      run: |
         # Add the ansible-lint profile
         if [[ "${{ inputs.lint_profile }}" != "" ]]; then
           LINT_ARGS+=" --profile ${{ inputs.lint_profile }}";
@@ -138,6 +159,7 @@ jobs:
         fi
 
         ansible-lint --version
+        
         echo "Running ansible-lint with the following parameters:"
         echo "${LINT_ARGS}"
         ansible-lint ${LINT_ARGS} || RETURN=$?
@@ -151,11 +173,11 @@ jobs:
         fi
         exit $RETURN
 
-    - name: Test | automation-hub-verify-ansible-lint (2/2)
+    - name: Upload code quality report
       uses: actions/upload-artifact@v4
-      if: always() && steps.automation-hub-verify-ansible-lint.outcome != 'skipped'
+      if: always() && steps.ansible-lint.outcome != 'skipped'
       with:
-        name: automation-hub-verify-ansible-lint
+        name: ansible-lint
         path: code-quality-report.sarif
         if-no-files-found: error
 
@@ -168,22 +190,34 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v4
-
-    - name: Download ansible collections
-      uses: actions/download-artifact@v4
       with:
-        name: local-ansible-collections
-        path: .ansible
-
-    - name: Test | ansible-tox-sanity
-      id: ansible-tox-sanity
+        ref: ${{ inputs.ref }}
+        repository: ${{ inputs.repo }}
+    - name: Install python dependencies
+      env:
+        TEST_REQUIREMENTS: "${{ inputs.test_requirements }}"
       run: |
         echo "Install pip requirements when test_requirements input is specified"
-        if [[ "${{ inputs.test_requirements }}" != "" ]]; then pip install -r ${{ inputs.test_requirements }}; fi
-        export ANSIBLE_COLLECTIONS_PATH=./.ansible/collections
+        if [[ "$TEST_REQUIREMENTS" != "" ]]; then pip install -r $TEST_REQUIREMENTS; fi
+    - name: Install collections
+      env:
+        ANSIBLE_GALAXY_SERVER_LIST: automation_hub,upstream_galaxy
+        ANSIBLE_GALAXY_SERVER_UPSTREAM_GALAXY_URL: https://galaxy.ansible.com/
+        ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
+        ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
+        ANSIBLE_REQUIREMENTS: "${{ inputs.ansible_requirements }}"
+      run: |
+        if [[ "$ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL" == *"console.redhat.com"* ]]; then
+          export ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
+        fi
+        ansible-galaxy collection install -r $ANSIBLE_REQUIREMENTS
+    - name: Run sanity checks
+      id: ansible-tox-sanity
+      run: |
         ansible-galaxy collection list
         tox --verbose --listenvs-all
         tox
+
   ansible-tox-integration:
     runs-on: ubuntu-latest
     container:
@@ -193,33 +227,45 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v4
-
-    - name: Download ansible collections
-      uses: actions/download-artifact@v4
       with:
-        name: local-ansible-collections
-        path: .ansible
-
-    - name: Test | ansible-tox-integration
-      id: ansible-tox-integration
+        ref: ${{ inputs.ref }}
+        repository: ${{ inputs.repo }}
+    - name: Install python dependencies
       env:
-          ANSIBLE_GALAXY_SERVER_LIST: automation_hub,upstream_galaxy
-          ANSIBLE_GALAXY_SERVER_UPSTREAM_GALAXY_URL: https://galaxy.ansible.com/
-          ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
-          ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
+        TEST_REQUIREMENTS: "${{ inputs.test_requirements }}"
+      run: |
+        echo "Install pip requirements when test_requirements input is specified"
+        if [[ "$TEST_REQUIREMENTS" != "" ]]; then pip install -r $TEST_REQUIREMENTS; fi
+    - name: Install collections
+      env:
+        ANSIBLE_GALAXY_SERVER_LIST: automation_hub,upstream_galaxy
+        ANSIBLE_GALAXY_SERVER_UPSTREAM_GALAXY_URL: https://galaxy.ansible.com/
+        ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
+        ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
+        ANSIBLE_REQUIREMENTS: "${{ inputs.ansible_requirements }}"
       run: |
         if [[ "$ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL" == *"console.redhat.com"* ]]; then
-            export ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
+          export ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
         fi
-        echo "Install pip requirements when test_requirements input is specified"
-        if [[ "${{ inputs.test_requirements }}" != "" ]]; then pip install -r ${{ inputs.test_requirements }}; fi
-        export ANSIBLE_COLLECTIONS_PATH=./.ansible/collections
+        ansible-galaxy collection install -r $ANSIBLE_REQUIREMENTS
+    - name: Run integration tests
+      id: ansible-tox-integration
+      env:
+        ANSIBLE_GALAXY_SERVER_LIST: automation_hub,upstream_galaxy
+        ANSIBLE_GALAXY_SERVER_UPSTREAM_GALAXY_URL: https://galaxy.ansible.com/
+        ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
+        ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
+        TOX_CONFIG_FILE: ${{ inputs.tox_config_file }}
+      run: |
+        if [[ "$ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL" == *"console.redhat.com"* ]]; then
+          export ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
+        fi
         ansible-galaxy collection list
-        if [ -f ${{ inputs.tox_config_file }} ]
+        if [ -f $TOX_CONFIG_FILE ]
         then
-          tox --ansible --conf ${{ inputs.tox_config_file }} list
-          tox --ansible --conf ${{ inputs.tox_config_file }}
+          tox --ansible --conf $TOX_CONFIG_FILE list
+          tox --ansible --conf $TOX_CONFIG_FILE
         else
-          echo "❌ Error: File not found ${{ inputs.tox_config_file }}"
+          echo "❌ Error: File not found $TOX_CONFIG_FILE"
           exit 1
         fi
