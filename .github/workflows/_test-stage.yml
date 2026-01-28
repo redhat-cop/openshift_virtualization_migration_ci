@@ -90,8 +90,7 @@ jobs:
         fetch-depth: 0
         ref: ${{ inputs.ref }}
         repository: ${{ inputs.repo }}
-    - name: Attach to Branch (Fix Detached HEAD)
-      if: github.event_name == 'pull_request'
+    - name: Fix detached HEAD state
       run: |
         git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
@@ -102,7 +101,7 @@ jobs:
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"        
 
-        git checkout -B ${{ github.head_ref }}
+        git checkout -B ${{ github.head_ref || github.ref }}
     - name: Lint changelog fragments
       run: |
         LAST_VERSION=$(semantic-release version --print-last-released)
