@@ -50,11 +50,19 @@ on:
       automation_hub_token:
         required: true
         description: 'The Authentication Token for the Automation Hub'
+      release_app_id:
+        required: false
+        description: 'App ID of GitHub App used to push commits to default branch'
+      release_app_private_key:
+        required: false
+        description: 'Private key of GitHub App used to push commits to default branch'
 
 # default: least privileged permissions across all jobs
 permissions:
+  actions: none
   contents: read
   packages: read
+  security-events: none
 
 jobs:
   secrets:
@@ -75,6 +83,11 @@ jobs:
   test:
     needs: prepare
     uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_test-stage.yml@main
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+      actions: read
     with:
       ref: ${{ inputs.ref }}
       repo: ${{ inputs.repo }}
@@ -106,9 +119,12 @@ jobs:
       contents: write
       packages: read
     with:
+      target_branch: ${{ inputs.target_branch }}
       image: ${{ inputs.image }}
       dry_run: ${{ github.event_name != 'push' }}
-
+    secrets:
+      release_app_id: ${{ secrets.release_app_id }}
+      release_app_private_key: ${{ secrets.release_app_private_key }}
   publish:
     if: |
       github.event_name == 'push' && 

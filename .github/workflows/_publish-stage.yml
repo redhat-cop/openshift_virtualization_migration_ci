@@ -36,12 +36,10 @@ jobs:
       with:
         fetch-depth: 0
         fetch-tags: true # Explicitly ensures tags are pulled
-
     - name: Publish | download-collection
       uses: actions/download-artifact@v4
       with:
         name: build-asset
-
     - name: Publish | package-publisher-github
       id: package-publisher-github
       env:

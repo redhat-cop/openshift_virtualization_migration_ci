@@ -77,6 +77,50 @@ on:
         description: 'The Authentication Token for the Hub'
 
 jobs:
+  changelog-lint:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: ${{ inputs.ref }}
+        repository: ${{ inputs.repo }}
+    - name: Attach to Branch (Fix Detached HEAD)
+      if: github.event_name == 'pull_request'
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        # Ensure we are in the workspace
+        cd "$GITHUB_WORKSPACE"
+
+        # Standard Git Config
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"        
+
+        git checkout -B ${{ github.head_ref }}
+    - name: Lint changelog fragments
+      run: |
+        LAST_VERSION=$(semantic-release version --print-last-released)
+        NEXT_VERSION=$(semantic-release version --print)
+
+        # Create fragments based on commit messages
+        . ./scripts/create-changelog-fragments.sh $LAST_VERSION $NEXT_VERSION
+
+        export ANSIBLE_COLLECTIONS_PATH=.
+
+        # Lint fragments
+        antsibull-changelog lint && echo "✅ All changelog fragments passed linting!" || exit 1
+
+        # Run antsibull-changelog release to update changelog and delete fragments
+        antsibull-changelog release -v --version $NEXT_VERSION
+
+        echo "✅ Changelog updated successfully!"
+
   ansible-lint:
     runs-on: ubuntu-latest
     container:
@@ -172,7 +216,11 @@ jobs:
           exit 0
         fi
         exit $RETURN
-
+    - name: Upload SARIF report
+      if: always() && steps.ansible-lint.outcome != 'skipped' && github.event_name != 'merge_group'
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: code-quality-report.sarif
     - name: Upload code quality report
       uses: actions/upload-artifact@v4
       if: always() && steps.ansible-lint.outcome != 'skipped'
@@ -182,6 +230,7 @@ jobs:
         if-no-files-found: error
 
   ansible-tox-sanity:
+    needs: [ansible-lint,changelog-lint]
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.image }}
@@ -219,6 +268,7 @@ jobs:
         tox
 
   ansible-tox-integration:
+    needs: [ansible-lint,changelog-lint]
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.image }}

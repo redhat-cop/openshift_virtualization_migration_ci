@@ -3,6 +3,10 @@ name: Release stage
 on:
   workflow_call:
     inputs:
+      target_branch:
+        type: string
+        required: true
+        description: "The primary branch used for releases (e.g., main or master)"
       image:
         type: string
         required: true
@@ -17,6 +21,13 @@ on:
       released:
         description: "Whether a release was created"
         value: ${{ jobs.semantic_release.outputs.released }}
+    secrets:
+      release_app_id:
+        required: false
+        description: 'App ID of GitHub App used to push commits to default branch'
+      release_app_private_key:
+        required: false
+        description: 'Private key of GitHub App used to push commits to default branch'
 
 jobs:
   semantic_release:
@@ -29,22 +40,65 @@ jobs:
     outputs:
       new_version: ${{ steps.set-output.outputs.version }}
       released: ${{ steps.set-output.outputs.released }}
+    env:
+      HAS_APP_ID: ${{ secrets.release_app_id != '' }}
+      HAS_APP_KEY: ${{ secrets.release_app_private_key != '' }}      
     steps:
+    - name: Generate Token
+      id: generate_token
+      if: env.HAS_APP_ID == 'true' && env.HAS_APP_KEY == 'true'
+      uses: actions/create-github-app-token@v1
+      with:
+        app-id: ${{ secrets.release_app_id }}
+        private-key: ${{ secrets.release_app_private_key }}
+    - name: Set Final Token
+      id: select_token
+      run: |
+        if [ "${{ steps.generate_token.outputs.token }}" != "" ]; then
+          echo "auth_token=${{ steps.generate_token.outputs.token }}" >> $GITHUB_OUTPUT
+          echo "Using GitHub App Token"
+        else
+          echo "auth_token=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_OUTPUT
+          echo "Using default GITHUB_TOKEN"
+        fi
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        token: ${{ steps.select_token.outputs.auth_token }}
+    - name: Catch-up with changes in default branch
+      if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+      run: |
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        # Ensure we are in the workspace
+        cd "$GITHUB_WORKSPACE"
+
+        # Standard Git Config
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"        
+
+        # Pull with rebase
+        git pull origin ${{ inputs.target_branch }} --rebase
     # ONLY needed for PRs to fix the Detached HEAD error for python-semantic release
     - name: Attach to Branch (Fix Detached HEAD)
       if: github.event_name == 'pull_request'
       run: |
-        git config --global --add safe.directory .
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        # Ensure we are in the workspace
+        cd "$GITHUB_WORKSPACE"
+
+        # Standard Git Config
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"        
+
         git checkout -B ${{ github.head_ref }}
     - name: Release | semantic_release
       id: semantic_release
       env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ steps.select_token.outputs.auth_token }}
       run: |
-        git config --global --add safe.directory .
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
         NOOP_FLAG=""
         if [ "${{ inputs.dry_run }}" == "true" ]; then
@@ -57,7 +111,7 @@ jobs:
         echo "LAST_VERSION=$LAST_VERSION" >> $GITHUB_ENV
         echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_ENV
 
-        semantic-release $NOOP_FLAG -v version
+        semantic-release $NOOP_FLAG -vv version
     - name: Release | set-sematic_release-outputs
       id: set-output
       run: |
