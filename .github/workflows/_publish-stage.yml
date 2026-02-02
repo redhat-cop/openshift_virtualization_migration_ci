@@ -15,6 +15,10 @@ on:
         type: string
         required: true
         description: 'The API URL for the Automation Hub'
+      automation_hub_repository:
+        type: string
+        required: true
+        description: 'The target repository to publish the collection in the Automation Hub'
       tag_name:
         type: string
         required: true
@@ -58,13 +62,15 @@ jobs:
         name: build-asset
     - name: Publish | run-galaxy-importer
       run: |
-        python3 -m galaxy_importer.main ./*.tar.gz
+        python3 -m galaxy_importer.main ./*.tar.gz && echo "✅ Galaxy importer does not throw errors!"
     - name: Publish | package-publisher-automation-hub
       id: package-publisher-automation-hub
       env:
-        AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
-        AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
+        ANSIBLE_GALAXY_SERVER_LIST: automation_hub
+        ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}/content/${{ inputs.automation_hub_repository }}
+        ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
       run: |
-        ansible-galaxy collection publish ./*.tar.gz \
-          --server "$AUTOMATION_HUB_URL" \
-          --token "$AUTOMATION_HUB_TOKEN"
+        if [[ "$ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL" == *"console.redhat.com"* ]]; then
+          export ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
+        fi
+        ansible-galaxy collection publish ./*.tar.gz

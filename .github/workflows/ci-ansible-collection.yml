@@ -41,6 +41,11 @@ on:
         required: false
         default: 'https://console.redhat.com/api/automation-hub/'
         description: 'The API URL for the Automation Hub'
+      automation_hub_repository:
+        type: string
+        required: false
+        default: 'staging'
+        description: 'The target repository to publish the collection in the Automation Hub'
       publish_to_automation_hub:
         type: boolean
         required: false
@@ -140,5 +145,6 @@ jobs:
       tag_name: ${{ needs.release.outputs.new_version }}
       publish_to_automation_hub: ${{ inputs.publish_to_automation_hub }}
       automation_hub_url: ${{ inputs.automation_hub_url }}
+      automation_hub_repository: ${{ inputs.automation_hub_repository }}
     secrets:
       automation_hub_token: ${{ secrets.automation_hub_token }}
