@@ -67,7 +67,7 @@ jobs:
       id: package-publisher-automation-hub
       env:
         ANSIBLE_GALAXY_SERVER_LIST: automation_hub
-        ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}/content/${{ inputs.automation_hub_repository }}
+        ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
         ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
       run: |
         if [[ "$ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL" == *"console.redhat.com"* ]]; then
