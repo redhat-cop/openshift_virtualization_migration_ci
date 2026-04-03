@@ -61,7 +61,7 @@ jobs:
           echo "auth_token=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_OUTPUT
           echo "Using default GITHUB_TOKEN"
         fi
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0
         token: ${{ steps.select_token.outputs.auth_token }}
