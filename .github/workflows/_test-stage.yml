@@ -102,6 +102,38 @@ jobs:
         git config user.email "github-actions[bot]@users.noreply.github.com"        
 
         git checkout -B ${{ github.head_ref || github.ref }}
+    - name: Fetch tags from base repository for version resolution
+      run: |
+        # GITHUB_REPOSITORY always contains the base repo context
+        BASE_REPO="${GITHUB_REPOSITORY}"
+        
+        echo "Current repository: ${{ inputs.repo }}"
+        echo "Base repository: ${BASE_REPO}"
+        
+        # Add base repository as a remote
+        if git remote | grep -q "^base$"; then
+          echo "Remote 'base' already exists, updating..."
+          git remote set-url base "https://github.com/${BASE_REPO}.git"
+        else
+          echo "Adding base repository as remote..."
+          git remote add base "https://github.com/${BASE_REPO}.git"
+        fi
+        
+        # Fetch all tags from base repository
+        echo "Fetching tags from base repository..."
+        git fetch base --tags --force
+        
+        # Verify tags were fetched
+        TAG_COUNT=$(git tag | wc -l)
+        echo "Fetched ${TAG_COUNT} tags from base repository: ${BASE_REPO}"
+        
+        if [ "$TAG_COUNT" -eq 0 ]; then
+          echo " Error: No tags found in base repository"
+          exit 1
+        else
+          echo "Latest tags:"
+          git tag --sort=-version:refname | head -5
+        fi
     - name: Lint changelog fragments
       run: |
         LAST_VERSION=$(semantic-release version --print-last-released)
