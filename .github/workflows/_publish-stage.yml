@@ -15,20 +15,21 @@ on:
         type: string
         required: true
         description: 'The API URL for the Automation Hub'
-      automation_hub_repository:
+      release_version:
         type: string
         required: true
-        description: 'The target repository to publish the collection in the Automation Hub'
-      tag_name:
+        description: 'Release version to publish (e.g., 1.2.3)'
+      target_branch:
         type: string
         required: true
+        description: 'The primary branch used for releases (e.g., main or master)'
     secrets:
       automation_hub_token:
         required: true
         description: 'The Authentication Token for the Hub'
 
 jobs:
-  package-publisher-github:
+  build-artifact:
     runs-on: ubuntu-latest
     container:
       image: ${{ inputs.image }}
@@ -36,41 +37,169 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-        fetch-tags: true # Explicitly ensures tags are pulled
-    - name: Publish | download-collection
-      uses: actions/download-artifact@v4
-      with:
-        name: build-asset
-    - name: Publish | package-publisher-github
-      id: package-publisher-github
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        git config --global --add safe.directory .
-        semantic-release -v publish --tag ${{ inputs.tag_name }}
+      - name: Checkout target branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.target_branch }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Configure git
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build collection artifact
+        run: |
+          # Build the collection artifact once for both publish jobs
+          echo "📦 Building collection artifact..."
+
+          # Check if there's a custom build script
+          if [ -f "scripts/build.sh" ]; then
+            echo "Using custom build script: scripts/build.sh"
+            ./scripts/build.sh
+          else
+            echo "Using default build command: ansible-galaxy collection build"
+            ansible-galaxy collection build
+          fi
+
+          # Verify artifact was created
+          ARTIFACT_COUNT=$(ls -1 *.tar.gz 2>/dev/null | wc -l)
+          if [ "$ARTIFACT_COUNT" -eq 0 ]; then
+            echo "❌ Error: No artifact found after build"
+            exit 1
+          fi
+
+          ARTIFACT=$(ls -1 *.tar.gz | head -1)
+          echo "✅ Built artifact: $ARTIFACT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-asset
+          path: "*.tar.gz"
+          if-no-files-found: error
+
+  package-publisher-github:
+    needs: build-artifact
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.target_branch }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Configure git
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install GitHub CLI
+        run: |
+          # Install gh CLI in the UBI9 container (needed for release operations)
+          if ! command -v gh &> /dev/null; then
+            echo "📦 Installing GitHub CLI..."
+            dnf install -y 'dnf-command(config-manager)'
+            dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+            dnf install -y gh
+            echo "✅ GitHub CLI installed"
+          else
+            echo "✅ GitHub CLI already installed"
+          fi
+
+      - name: Move tag to target branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ inputs.release_version }}"
+          TAG="${VERSION}"
+          TARGET_BRANCH="${{ inputs.target_branch }}"
+
+          echo "📌 Moving tag ${TAG} to ${TARGET_BRANCH} branch commit"
+
+          # Ensure we're on latest target branch
+          git fetch origin "${TARGET_BRANCH}"
+          git checkout "${TARGET_BRANCH}"
+          git pull origin "${TARGET_BRANCH}"
+
+          CURRENT_SHA=$(git rev-parse HEAD)
+          echo "Current HEAD SHA: $CURRENT_SHA"
+
+          # Delete tag from release branch if it exists
+          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
+            echo "🗑️  Deleting tag ${TAG} from release branch"
+            git push origin ":refs/tags/${TAG}"
+          fi
+
+          # Delete local tag if it exists (from fetch-tags)
+          git tag -d "${TAG}" 2>/dev/null || true
+
+          # Create tag on current commit (squash merge SHA on target branch)
+          git tag -a "${TAG}" -m "chore(release): ${VERSION}"
+          git push origin "${TAG}"
+
+          echo "✅ Tagged commit $CURRENT_SHA as ${TAG}"
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: build-asset
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ inputs.release_version }}"
+
+          # Check if release already exists
+          if gh release view "$TAG" &>/dev/null; then
+            echo "ℹ️  Release $TAG already exists, uploading artifact"
+            gh release upload "$TAG" *.tar.gz --clobber
+          else
+            echo "📝 Creating GitHub release for $TAG"
+
+            # Create release with auto-generated notes from commits
+            gh release create "$TAG" \
+              --title "v$TAG" \
+              --generate-notes \
+              *.tar.gz
+
+            echo "✅ Created release $TAG"
+          fi
 
   package-publisher-automation-hub:
     if: ${{ inputs.publish_to_automation_hub }}
+    needs: build-artifact
     runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - name: Publish | download-collection
-      uses: actions/download-artifact@v4
-      with:
-        name: build-asset
-    - name: Publish | run-galaxy-importer
-      run: |
-        python3 -m galaxy_importer.main ./*.tar.gz && echo "✅ Galaxy importer does not throw errors!"
-    - name: Publish | package-publisher-automation-hub
-      id: package-publisher-automation-hub
-      env:
-        ANSIBLE_GALAXY_SERVER_LIST: automation_hub
-        ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
-        ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
-      run: |
-        if [[ "$ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL" == *"console.redhat.com"* ]]; then
-          export ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
-        fi
-        ansible-galaxy collection publish ./*.tar.gz
+      - name: Download build artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: build-asset
+
+      - name: Run galaxy-importer
+        run: |
+          python3 -m galaxy_importer.main ./*.tar.gz && echo "✅ Galaxy importer does not throw errors!"
+
+      - name: Publish to Automation Hub
+        env:
+          ANSIBLE_GALAXY_SERVER_LIST: automation_hub
+          ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL: ${{ inputs.automation_hub_url }}
+          ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN: ${{ secrets.automation_hub_token }}
+        run: |
+          if [[ "$ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_URL" == *"console.redhat.com"* ]]; then
+            export ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_AUTH_URL=https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
+          fi
+          ansible-galaxy collection publish ./*.tar.gz

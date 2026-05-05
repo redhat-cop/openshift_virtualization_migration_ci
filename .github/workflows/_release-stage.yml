@@ -14,6 +14,10 @@ on:
       dry_run:
         type: boolean
         default: true
+      auto_merge:
+        type: boolean
+        default: false
+        description: "Enable auto-merge for release PR"
     outputs:
       new_version:
         description: "The version number generated"
@@ -21,6 +25,8 @@ on:
       released:
         description: "Whether a release was created"
         value: ${{ jobs.semantic_release.outputs.released }}
+      release_pr_number:
+        value: ${{ jobs.semantic_release.outputs.pr_number }}
     secrets:
       release_app_id:
         required: false
@@ -40,94 +46,331 @@ jobs:
     outputs:
       new_version: ${{ steps.set-output.outputs.version }}
       released: ${{ steps.set-output.outputs.released }}
+      pr_number: ${{ steps.create-pr.outputs.pr_number }}
     env:
       HAS_APP_ID: ${{ secrets.release_app_id != '' }}
-      HAS_APP_KEY: ${{ secrets.release_app_private_key != '' }}      
+      HAS_APP_KEY: ${{ secrets.release_app_private_key != '' }}
     steps:
-    - name: Generate Token
-      id: generate_token
-      if: env.HAS_APP_ID == 'true' && env.HAS_APP_KEY == 'true'
-      uses: actions/create-github-app-token@v1
-      with:
-        app-id: ${{ secrets.release_app_id }}
-        private-key: ${{ secrets.release_app_private_key }}
-    - name: Set Final Token
-      id: select_token
-      run: |
-        if [ "${{ steps.generate_token.outputs.token }}" != "" ]; then
-          echo "auth_token=${{ steps.generate_token.outputs.token }}" >> $GITHUB_OUTPUT
+      - name: Generate Token
+        id: generate_token
+        if: env.HAS_APP_ID == 'true' && env.HAS_APP_KEY == 'true'
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.release_app_id }}
+          private-key: ${{ secrets.release_app_private_key }}
+
+      - name: Set Final Token
+        id: select_token
+        run: |
+          if [ "${{ steps.generate_token.outputs.token }}" != "" ]; then
+            echo "auth_token=${{ steps.generate_token.outputs.token }}" >> $GITHUB_OUTPUT
           echo "Using GitHub App Token"
-        else
-          echo "auth_token=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_OUTPUT
+          else
+            echo "auth_token=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_OUTPUT
           echo "Using default GITHUB_TOKEN"
-        fi
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-        token: ${{ steps.select_token.outputs.auth_token }}
-    - name: Catch-up with changes in default branch
-      if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-      run: |
-        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          fi
 
-        # Ensure we are in the workspace
-        cd "$GITHUB_WORKSPACE"
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.select_token.outputs.auth_token }}
 
-        # Standard Git Config
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"        
+      - name: Install GitHub CLI
+        run: |
+          # Install gh CLI in the UBI9 container (needed for PR operations)
+          if ! command -v gh &> /dev/null; then
+            echo "📦 Installing GitHub CLI..."
+            dnf install -y 'dnf-command(config-manager)'
+            dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+            dnf install -y gh
+            echo "✅ GitHub CLI installed"
+          else
+            echo "✅ GitHub CLI already installed"
+          fi
 
-        # Pull with rebase
-        git pull origin ${{ inputs.target_branch }} --rebase
-    # ONLY needed for PRs to fix the Detached HEAD error for python-semantic release
-    - name: Attach to Branch (Fix Detached HEAD)
-      if: github.event_name == 'pull_request'
-      run: |
-        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Configure Git
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-        # Ensure we are in the workspace
-        cd "$GITHUB_WORKSPACE"
+      - name: Attach to branch (Fix Detached HEAD)
+        run: |
+          TARGET_BRANCH="${{ inputs.target_branch }}"
+          EVENT_NAME="${{ github.event_name }}"
+          HEAD_REF="${{ github.head_ref }}"
 
-        # Standard Git Config
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"        
+          # Determine which branch to checkout based on event type
+          if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
+            # For PRs: checkout the PR source branch to analyze its commits
+            CHECKOUT_BRANCH="${HEAD_REF}"
+            echo "📋 Pull request event detected"
+          else
+            # For workflow_dispatch/push: checkout the target branch
+            CHECKOUT_BRANCH="${TARGET_BRANCH}"
+            echo "📋 Workflow dispatch or push event detected"
+          fi
 
-        git checkout -B ${{ github.head_ref }}
-    - name: Release | semantic_release
-      id: semantic_release
-      env:
-        GH_TOKEN: ${{ steps.select_token.outputs.auth_token }}
-      run: |
-        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # Check if we're already on the correct branch
+          if git symbolic-ref -q HEAD > /dev/null; then
+            CURRENT_BRANCH=$(git branch --show-current)
+            echo "Already on a branch: $CURRENT_BRANCH"
 
-        NOOP_FLAG=""
-        if [ "${{ inputs.dry_run }}" == "true" ]; then
-          NOOP_FLAG="--noop"
-        fi
+            if [ "$CURRENT_BRANCH" != "$CHECKOUT_BRANCH" ]; then
+              echo "Switching from $CURRENT_BRANCH to $CHECKOUT_BRANCH"
+              git fetch origin "$CHECKOUT_BRANCH"
+              git checkout "$CHECKOUT_BRANCH"
+              git pull origin "$CHECKOUT_BRANCH" --rebase
+            fi
+          else
+            # In detached HEAD state - checkout the appropriate branch
+            echo "Detached HEAD detected, checking out ${CHECKOUT_BRANCH}"
+            git fetch origin "$CHECKOUT_BRANCH"
+            git checkout "$CHECKOUT_BRANCH"
+            git pull origin "$CHECKOUT_BRANCH" --rebase
+          fi
 
-        LAST_VERSION=$(semantic-release version --print-last-released)
-        NEXT_VERSION=$(semantic-release version --print)
+          # Verify we're on a branch
+          CURRENT_BRANCH=$(git branch --show-current)
+          if [ -z "$CURRENT_BRANCH" ]; then
+            echo "❌ Error: Still in detached HEAD state"
+            exit 1
+          fi
 
-        echo "LAST_VERSION=$LAST_VERSION" >> $GITHUB_ENV
-        echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_ENV
+          echo "✅ On branch: $CURRENT_BRANCH"
 
-        semantic-release $NOOP_FLAG -vv version
-    - name: Release | set-sematic_release-outputs
-      id: set-output
-      run: |
-        if [ "$LAST_VERSION" != "$NEXT_VERSION" ] && [ "${{ inputs.dry_run }}" != "true" ]; then
-          echo "🚀 A new version was created: $NEXT_VERSION"
+      - name: Fetch tags from base repository for version resolution
+        run: |
+          # GITHUB_REPOSITORY always contains the base repo context
+          BASE_REPO="${GITHUB_REPOSITORY}"
+
+          echo "📋 Current repository context: ${GITHUB_REPOSITORY}"
+          echo "📋 Base repository: ${BASE_REPO}"
+
+          # Add base repository as a remote (needed for fork PRs)
+          if git remote | grep -q "^base$"; then
+            echo "Remote 'base' already exists, updating URL..."
+            git remote set-url base "https://github.com/${BASE_REPO}.git"
+          else
+            echo "Adding base repository as remote 'base'..."
+            git remote add base "https://github.com/${BASE_REPO}.git"
+          fi
+
+          # Fetch all tags from base repository
+          echo "🏷️  Fetching tags from base repository..."
+          git fetch base --tags --force
+
+          # Verify tags were fetched
+          TAG_COUNT=$(git tag | wc -l)
+          echo "✅ Fetched ${TAG_COUNT} tags from base repository: ${BASE_REPO}"
+
+          if [ "$TAG_COUNT" -eq 0 ]; then
+            echo "⚠️  Warning: No tags found in base repository (this may be a new project)"
+          else
+            echo "Latest tags:"
+            git tag --sort=-version:refname | head -5
+          fi
+
+      - name: Clean up orphaned tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔍 Checking for orphaned tags (tags without GitHub releases)..."
+
+          # Get all tags
+          git fetch --tags
+
+          # Calculate what the next version would be (to identify which tag might be orphaned)
+          NEXT_VERSION=$(semantic-release version --print 2>/dev/null || echo "")
+
+          if [ -n "$NEXT_VERSION" ]; then
+            # Check if tag exists but release doesn't
+            if git rev-parse "$NEXT_VERSION" >/dev/null 2>&1; then
+              # Tag exists, check if release exists (try both with and without 'v' prefix)
+              if ! gh release view "$NEXT_VERSION" &>/dev/null && ! gh release view "v$NEXT_VERSION" &>/dev/null; then
+                echo "⚠️  Found orphaned tag: $NEXT_VERSION (no GitHub release exists)"
+                echo "🗑️  Attempting to delete orphaned tag..."
+
+                # Try to delete (might fail due to repository rules - that's OK)
+                if git push origin ":refs/tags/$NEXT_VERSION" 2>&1 | tee /tmp/tag_delete.log; then
+                  echo "✅ Deleted remote tag: $NEXT_VERSION"
+                  git tag -d "$NEXT_VERSION" 2>/dev/null || true
+                elif grep -q "repository rule violations\|protected" /tmp/tag_delete.log; then
+                  echo "⚠️  Cannot delete tag $NEXT_VERSION - protected by repository rules"
+                  echo "💡 Manual cleanup required: delete tag $NEXT_VERSION via GitHub UI"
+                  echo "⚠️  Workflow may fail due to existing tag - retry after manual cleanup"
+                else
+                  echo "ℹ️  Tag deletion skipped or already deleted"
+                fi
+              fi
+            fi
+          fi
+
+          echo "✅ Orphaned tag check complete"
+
+      - name: Calculate next version
+        id: calc_version
+        run: |
+          LAST_VERSION=$(semantic-release version --print-last-released)
+          NEXT_VERSION=$(semantic-release version --print)
+
+          echo "LAST_VERSION=$LAST_VERSION" >> $GITHUB_ENV
+          echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_ENV
+          echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
+
+          if [ "$LAST_VERSION" != "$NEXT_VERSION" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create release branch
+        id: create_branch
+        if: |
+          inputs.dry_run == false &&
+          steps.calc_version.outputs.has_changes == 'true'
+        run: |
+          RELEASE_BRANCH="release-${NEXT_VERSION}"
+          echo "release_branch=$RELEASE_BRANCH" >> $GITHUB_OUTPUT
+
+          # Check if release branch already exists on remote (from previous failed run)
+          git fetch origin
+
+          if git ls-remote --heads origin "$RELEASE_BRANCH" | grep -q "$RELEASE_BRANCH"; then
+            echo "⚠️  Release branch $RELEASE_BRANCH already exists from previous run"
+            echo "🗑️  Deleting existing branch to start fresh (prevents duplicate changelog entries)"
+
+            # Delete local branch if it exists
+            git branch -D "$RELEASE_BRANCH" 2>/dev/null || true
+
+            # Delete remote branch
+            git push origin --delete "$RELEASE_BRANCH" || echo "Remote branch already deleted"
+
+            echo "✅ Cleaned up existing release branch"
+          fi
+
+          # Create fresh release branch from current HEAD
+          echo "📝 Creating fresh release branch: $RELEASE_BRANCH"
+          git checkout -b "$RELEASE_BRANCH"
+          git push -u origin "$RELEASE_BRANCH"
+          echo "✅ Created release branch: $RELEASE_BRANCH"
+
+      # Note: This creates a tag on the release branch.
+      # After squash merge, the publish stage will move the tag to main and create the GitHub release.
+      - name: Run semantic-release
+        id: semantic_release
+        run: |
+          # Build command based on dry_run flag
+          if [ "${{ inputs.dry_run }}" == "true" ]; then
+            # Dry-run mode: simulate everything without making changes
+            # --noop is a global option (before command)
+            COMMAND="semantic-release --noop -vv version"
+          else
+            # Release mode: update files, commit, tag, build
+            # --no-vcs-release is a command option (after 'version')
+            # This prevents GitHub release creation (happens in publish stage)
+            COMMAND="semantic-release -vv version --no-vcs-release"
+          fi
+
+          echo "Running: $COMMAND"
+          $COMMAND
+
+          echo "✅ Semantic release completed successfully"
+
+      - name: Create release PR
+        id: create_pr
+        if: |
+          inputs.dry_run == false &&
+          steps.calc_version.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ steps.select_token.outputs.auth_token }}
+        run: |
+          RELEASE_BRANCH="${{ steps.create_branch.outputs.release_branch }}"
+
+          # Check if PR already exists for this release branch
+          # (shouldn't happen since we recreate the branch, but check anyway)
+          EXISTING_PR=$(gh pr list --head "$RELEASE_BRANCH" --base "${{ inputs.target_branch }}" --json number --jq '.[0].number' || echo "")
+
+          if [ -n "$EXISTING_PR" ]; then
+            echo "⚠️  Found existing PR #$EXISTING_PR for release branch"
+            echo "🗑️  Closing stale PR to create a fresh one"
+            gh pr close "$EXISTING_PR" --comment "Closing stale release PR. A fresh PR will be created." || true
+          fi
+
+          echo "📝 Creating new release PR"
+
+          # Generate PR body
+          PR_BODY=$(cat <<EOF
+          ## Release ${NEXT_VERSION}
+
+          This PR contains automated release changes:
+          - ✅ Updated \`galaxy.yml\` version: ${LAST_VERSION} → ${NEXT_VERSION}
+          - ✅ Generated CHANGELOG.md entries
+          - ✅ Removed changelog fragments
+
+          ### Changes in this release
+
+          EOF
+          )
+
+          # Add changelog excerpt
+          PR_BODY="${PR_BODY}\n\n$(git log ${LAST_VERSION}..HEAD --pretty=format:'- %s (%h)' | head -20)"
+
+          # Create PR (without labels to avoid errors if they don't exist)
+          PR_URL=$(gh pr create \
+            --base "${{ inputs.target_branch }}" \
+            --head "$RELEASE_BRANCH" \
+            --title "chore(release): ${NEXT_VERSION}" \
+            --body "$PR_BODY")
+
+          PR_NUMBER=$(echo "$PR_URL" | grep -oP '\d+$')
+
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+
+          # Try to add labels (non-fatal if they don't exist)
+          if gh pr edit "$PR_NUMBER" --add-label "release,automated" 2>/dev/null; then
+            echo "✅ Added labels to PR"
+          else
+            echo "ℹ️  Could not add labels (labels may not exist in repository)"
+          fi
+
+          echo "✅ Created release PR: $PR_URL"
+
+      - name: Enable auto-merge
+        if: |
+          inputs.dry_run == false &&
+          inputs.auto_merge == true &&
+          steps.create_pr.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ steps.select_token.outputs.auth_token }}
+        run: |
+          PR_NUMBER="${{ steps.create_pr.outputs.pr_number }}"
+
+          # Enable auto-merge (squash)
+          gh pr merge "$PR_NUMBER" --auto --squash
+
+          echo "✅ Enabled auto-merge for PR #$PR_NUMBER"
+
+      - name: Set outputs
+        id: set-output
+        run: |
+          if [ "${{ steps.calc_version.outputs.has_changes }}" == "true" ] && [ "${{ inputs.dry_run }}" != "true" ]; then
+          echo "🚀 A new version was created: $NEXT_VERSION"  
           echo "version=$NEXT_VERSION" >> $GITHUB_OUTPUT
-          echo "released=true" >> $GITHUB_OUTPUT
-        else
+            echo "released=true" >> $GITHUB_OUTPUT
+          else
           echo "💤 No release needed. Version remains: $LAST_VERSION"
-          echo "released=false" >> $GITHUB_OUTPUT
-        fi
-    - name: Release | upload-build-asset
-      id: upload-build-asset
-      uses: actions/upload-artifact@v7
-      if: always() && steps.semantic_release.outcome != 'skipped' && steps.set-output.outputs.released == 'true'
-      with:
-        name: build-asset
-        path: "*.tar.gz"
-        if-no-files-found: error
+            echo "released=false" >> $GITHUB_OUTPUT
+          fi
+
+      # Upload build asset (only for actual releases, not dry-runs)
+      - name: Upload build asset
+        uses: actions/upload-artifact@v7
+        if: |
+          inputs.dry_run == false &&
+          steps.calc_version.outputs.has_changes == 'true'
+        with:
+          name: build-asset
+          path: "*.tar.gz"
+          if-no-files-found: error

@@ -3,6 +3,16 @@ name: CI workflow for releasing and publishing of Ansible collections
 on:
   workflow_call:
     inputs:
+      trigger_release:
+        type: boolean
+        required: false
+        default: false
+        description: 'Allow to trigger release with workflow_dispatch on default branch'
+      auto_merge:
+        type: boolean
+        required: false
+        default: false
+        description: 'Enable auto-merge for release PR (squash merge)'
       target_branch:
         type: string
         required: false
@@ -70,15 +80,38 @@ permissions:
   security-events: none
 
 jobs:
+  detect-context:
+    runs-on: ubuntu-latest
+    outputs:
+      is_release_commit: ${{ steps.check.outputs.is_release_commit }}
+      release_version: ${{ steps.check.outputs.release_version }}
+    steps:
+      - name: Detect release commit
+        id: check
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+
+          # Check if commit message matches release pattern
+          # Format: chore(release): 1.2.3
+          if [[ "$COMMIT_MSG" =~ ^chore\(release\):\ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            echo "is_release_commit=true" >> $GITHUB_OUTPUT
+            echo "release_version=$VERSION" >> $GITHUB_OUTPUT
+            echo "✅ Detected release commit for version: $VERSION"
+          else
+            echo "is_release_commit=false" >> $GITHUB_OUTPUT
+            echo "ℹ️  Not a release commit"
+          fi
+
   secrets:
-    uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_secrets-stage.yml@main
+    uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_secrets-stage.yml@v2
     with:
       ref: ${{ inputs.ref }}
       repo: ${{ inputs.repo }}
 
   prepare:
     needs: secrets 
-    uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_prepare-stage.yml@main
+    uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_prepare-stage.yml@v2
     with:
       image: ${{ inputs.image }}
       automation_hub_url: ${{ inputs.automation_hub_url }}
@@ -87,7 +120,7 @@ jobs:
 
   test:
     needs: prepare
-    uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_test-stage.yml@main
+    uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_test-stage.yml@v2
     permissions:
       contents: read
       packages: read
@@ -109,42 +142,45 @@ jobs:
 
   report:
     needs: test
-    uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_report-stage.yml@main
+    uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_report-stage.yml@v2
     with:
       image: ${{ inputs.image }}
 
   release:
     if: |
-      (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', inputs.target_branch)) ||
-      (github.event_name == 'push' && github.ref == format('refs/heads/{0}', inputs.target_branch)) ||
-      (github.event_name == 'pull_request' && github.base_ref == inputs.target_branch)
+      inputs.trigger_release ||
+      ((github.event_name == 'pull_request' || github.event_name == 'pull_request_target') &&
+       github.base_ref == inputs.target_branch)
     needs: report
-    uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_release-stage.yml@main
+    uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_release-stage.yml@v2
     permissions:
       contents: write
       packages: read
+      pull-requests: write
     with:
       target_branch: ${{ inputs.target_branch }}
       image: ${{ inputs.image }}
-      dry_run: ${{ github.event_name != 'push' }}
+      dry_run: ${{ !inputs.trigger_release }}
+      auto_merge: ${{ inputs.auto_merge }}
     secrets:
       release_app_id: ${{ secrets.release_app_id }}
       release_app_private_key: ${{ secrets.release_app_private_key }}
+
   publish:
     if: |
-      github.event_name == 'push' && 
-      github.ref == format('refs/heads/{0}', inputs.target_branch) && 
-      needs.release.outputs.released == 'true'
-    needs: release
-    uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_publish-stage.yml@main
+      github.event_name == 'push' &&
+      github.ref == format('refs/heads/{0}', inputs.target_branch) &&
+      needs.detect-context.outputs.is_release_commit == 'true'
+    needs: [detect-context, test, report]
+    uses: redhat-cop/openshift_virtualization_migration_ci/.github/workflows/_publish-stage.yml@v2
     permissions:
       contents: write
       packages: read
     with:
       image: ${{ inputs.image }}
-      tag_name: ${{ needs.release.outputs.new_version }}
+      release_version: ${{ needs.detect-context.outputs.release_version }}
+      target_branch: ${{ inputs.target_branch }}
       publish_to_automation_hub: ${{ inputs.publish_to_automation_hub }}
       automation_hub_url: ${{ inputs.automation_hub_url }}
-      automation_hub_repository: ${{ inputs.automation_hub_repository }}
     secrets:
       automation_hub_token: ${{ secrets.automation_hub_token }}
