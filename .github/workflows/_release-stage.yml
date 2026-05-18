@@ -88,55 +88,16 @@ jobs:
             echo "✅ GitHub CLI already installed"
           fi
 
-      - name: Configure Git
+      - name: Fix detached HEAD state
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Attach to branch (Fix Detached HEAD)
-        run: |
-          TARGET_BRANCH="${{ inputs.target_branch }}"
-          EVENT_NAME="${{ github.event_name }}"
-          HEAD_REF="${{ github.head_ref }}"
+          # Create/reset branch from current HEAD (handles both PR and workflow_dispatch)
+          git checkout -B ${{ github.head_ref || github.ref }}
 
-          # Determine which branch to checkout based on event type
-          if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
-            # For PRs: checkout the PR source branch to analyze its commits
-            CHECKOUT_BRANCH="${HEAD_REF}"
-            echo "📋 Pull request event detected"
-          else
-            # For workflow_dispatch/push: checkout the target branch
-            CHECKOUT_BRANCH="${TARGET_BRANCH}"
-            echo "📋 Workflow dispatch or push event detected"
-          fi
-
-          # Check if we're already on the correct branch
-          if git symbolic-ref -q HEAD > /dev/null; then
-            CURRENT_BRANCH=$(git branch --show-current)
-            echo "Already on a branch: $CURRENT_BRANCH"
-
-            if [ "$CURRENT_BRANCH" != "$CHECKOUT_BRANCH" ]; then
-              echo "Switching from $CURRENT_BRANCH to $CHECKOUT_BRANCH"
-              git fetch origin "$CHECKOUT_BRANCH"
-              git checkout "$CHECKOUT_BRANCH"
-              git pull origin "$CHECKOUT_BRANCH" --rebase
-            fi
-          else
-            # In detached HEAD state - checkout the appropriate branch
-            echo "Detached HEAD detected, checking out ${CHECKOUT_BRANCH}"
-            git fetch origin "$CHECKOUT_BRANCH"
-            git checkout "$CHECKOUT_BRANCH"
-            git pull origin "$CHECKOUT_BRANCH" --rebase
-          fi
-
-          # Verify we're on a branch
           CURRENT_BRANCH=$(git branch --show-current)
-          if [ -z "$CURRENT_BRANCH" ]; then
-            echo "❌ Error: Still in detached HEAD state"
-            exit 1
-          fi
-
           echo "✅ On branch: $CURRENT_BRANCH"
 
       - name: Fetch tags from base repository for version resolution
